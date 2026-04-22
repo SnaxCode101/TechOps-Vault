@@ -1,0 +1,1056 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SecOps Vault Map</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+
+  :root {
+    --bg: #0D1117;
+    --bg2: #161B22;
+    --bg3: #21262D;
+    --border: #30363D;
+    --text: #E6EDF3;
+    --text2: #8B949E;
+    --text3: #484F58;
+    --diff-foundational: #22C55E;
+    --diff-intermediate: #F59E0B;
+    --diff-advanced: #EF4444;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Plus Jakarta Sans', -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    overflow: hidden;
+    height: 100vh;
+    width: 100vw;
+  }
+
+  #viz-container { position: absolute; inset: 0; }
+
+  svg { width: 100%; height: 100%; cursor: grab; }
+  svg:active { cursor: grabbing; }
+
+  .controls {
+    position: fixed;
+    top: 16px;
+    left: 16px;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-width: 300px;
+  }
+
+  .title-bar {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 16px;
+  }
+
+  .title-bar h1 { font-size: 16px; font-weight: 700; letter-spacing: -0.3px; margin-bottom: 2px; }
+  .title-bar .subtitle { font-size: 12px; color: var(--text2); }
+
+  .search-box {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 9px 12px;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .search-box input {
+    background: none;
+    border: none;
+    outline: none;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 13px;
+    flex: 1;
+    min-width: 0;
+    line-height: 1;
+  }
+
+  .search-box input::placeholder { color: var(--text3); }
+
+  .search-icon {
+    color: var(--text3);
+    flex-shrink: 0;
+    display: block;
+  }
+
+  .filter-panel {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .filter-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .filter-label {
+    font-size: 10px;
+    color: var(--text3);
+    white-space: nowrap;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    min-width: 58px;
+  }
+
+  .toggle-group { display: flex; gap: 4px; flex: 1; }
+
+  .toggle-btn {
+    flex: 1;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 11px;
+    font-family: inherit;
+    color: var(--text2);
+    cursor: pointer;
+    transition: all 0.15s;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  .toggle-btn:hover { color: var(--text); border-color: var(--text3); }
+
+  .toggle-btn.active {
+    background: rgba(255,255,255,0.07);
+    border-color: var(--text2);
+    color: var(--text);
+  }
+
+  .toggle-btn.wiki-active {
+    background: rgba(99,102,241,0.15);
+    border-color: #6366F1;
+    color: #A5B4FC;
+  }
+
+  .diff-chips { display: flex; gap: 4px; flex-wrap: wrap; }
+
+  .diff-chip {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 3px 9px;
+    font-size: 10px;
+    font-family: inherit;
+    color: var(--text2);
+    cursor: pointer;
+    transition: all 0.15s;
+    font-weight: 500;
+  }
+
+  .diff-chip:hover { color: var(--text); }
+  .diff-chip.all.active { background: rgba(255,255,255,0.08); border-color: var(--text2); color: var(--text); }
+  .diff-chip.foundational.active { background: rgba(34,197,94,0.15); border-color: var(--diff-foundational); color: var(--diff-foundational); }
+  .diff-chip.intermediate.active { background: rgba(245,158,11,0.15); border-color: var(--diff-intermediate); color: var(--diff-intermediate); }
+  .diff-chip.advanced.active { background: rgba(239,68,68,0.15); border-color: var(--diff-advanced); color: var(--diff-advanced); }
+
+  .legend {
+    position: fixed;
+    bottom: 16px;
+    left: 16px;
+    z-index: 10;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 16px;
+    max-width: 300px;
+  }
+
+  .legend-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+
+  .legend h3 {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text2);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+  }
+
+  .diff-key {
+    display: none;
+    gap: 10px;
+    margin-bottom: 10px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .diff-key.visible { display: flex; }
+
+  .diff-key-item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 10px;
+    color: var(--text2);
+  }
+
+  .diff-key-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .legend-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px 12px;
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 11px;
+    color: var(--text2);
+    cursor: pointer;
+    padding: 3px 4px;
+    border-radius: 4px;
+    transition: background 0.15s;
+    user-select: none;
+  }
+
+  .legend-item:hover { background: var(--bg3); }
+  .legend-item.dimmed { opacity: 0.3; }
+  .legend-item.active-filter { color: var(--text); }
+
+  .legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+  .legend-count {
+    color: var(--text3);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    margin-left: auto;
+  }
+
+  .stats-bar {
+    position: fixed;
+    bottom: 16px;
+    right: 16px;
+    z-index: 10;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 16px;
+    font-size: 11px;
+    color: var(--text2);
+    display: flex;
+    gap: 16px;
+  }
+
+  .stat-val { font-family: 'JetBrains Mono', monospace; color: var(--text); font-weight: 500; }
+
+  .tooltip {
+    position: fixed;
+    pointer-events: none;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 12px;
+    z-index: 100;
+    opacity: 0;
+    transition: opacity 0.15s;
+    max-width: 260px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  }
+
+  .tooltip .tt-name { font-weight: 600; font-size: 13px; margin-bottom: 3px; }
+  .tooltip .tt-path { color: var(--text2); font-family: 'JetBrains Mono', monospace; font-size: 10px; margin-bottom: 5px; }
+  .tooltip .tt-badges { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+
+  .tt-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 500;
+  }
+
+  .tt-diff-f { background: rgba(34,197,94,0.15); color: var(--diff-foundational); }
+  .tt-diff-i { background: rgba(245,158,11,0.15); color: var(--diff-intermediate); }
+  .tt-diff-a { background: rgba(239,68,68,0.15); color: var(--diff-advanced); }
+
+  .node-hub text {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-weight: 600;
+    fill: white;
+    text-anchor: middle;
+    dominant-baseline: central;
+    pointer-events: none;
+    font-size: 10px;
+  }
+
+  .help-hint {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    z-index: 10;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-size: 11px;
+    color: var(--text3);
+    line-height: 1.6;
+  }
+
+  .help-hint kbd {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 1px 5px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--text2);
+  }
+
+  .open-toast {
+    position: fixed;
+    bottom: 60px;
+    right: 16px;
+    z-index: 200;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 14px;
+    font-size: 11px;
+    color: var(--text2);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s;
+  }
+  .open-toast.visible { opacity: 1; }
+</style>
+</head>
+<body>
+
+<div id="viz-container"></div>
+
+<div class="controls">
+  <div class="title-bar">
+    <h1>SecOps Vault Map</h1>
+    <div class="subtitle">165 notes &middot; 13 sections &middot; Session 14</div>
+  </div>
+  <div class="search-box">
+    <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+    <input type="text" id="search" placeholder="Search notes..." autocomplete="off">
+  </div>
+  <div class="filter-panel">
+    <div class="filter-row">
+      <span class="filter-label">Color by</span>
+      <div class="toggle-group">
+        <button class="toggle-btn active" id="color-section">Section</button>
+        <button class="toggle-btn" id="color-difficulty">Difficulty</button>
+      </div>
+    </div>
+    <div class="filter-row" id="diff-filter-row" style="display:none">
+      <span class="filter-label">Level</span>
+      <div class="diff-chips">
+        <button class="diff-chip all active" data-diff="all">All</button>
+        <button class="diff-chip foundational" data-diff="foundational">Found.</button>
+        <button class="diff-chip intermediate" data-diff="intermediate">Inter.</button>
+        <button class="diff-chip advanced" data-diff="advanced">Adv.</button>
+      </div>
+    </div>
+    <div class="filter-row">
+      <span class="filter-label">Wikilinks</span>
+      <button class="toggle-btn" id="wiki-toggle" title="Show cross-section wikilink connections">Show connections</button>
+    </div>
+  </div>
+</div>
+
+<div class="legend" id="legend">
+  <div class="legend-header">
+    <h3>Sections</h3>
+  </div>
+  <div class="diff-key" id="diff-key">
+    <div class="diff-key-item"><div class="diff-key-dot" style="background:var(--diff-foundational)"></div>Foundational</div>
+    <div class="diff-key-item"><div class="diff-key-dot" style="background:var(--diff-intermediate)"></div>Intermediate</div>
+    <div class="diff-key-item"><div class="diff-key-dot" style="background:var(--diff-advanced)"></div>Advanced</div>
+  </div>
+  <div class="legend-grid" id="legend-grid"></div>
+</div>
+
+<div class="stats-bar">
+  <div>Notes: <span class="stat-val">165</span></div>
+  <div>Wikilinks: <span class="stat-val" id="wiki-count">&mdash;</span></div>
+  <div>Zoom: <span class="stat-val" id="zoom-level">1.0x</span></div>
+</div>
+
+<div class="help-hint">
+  <kbd>Scroll</kbd> zoom &middot; <kbd>Drag</kbd> pan &middot; <kbd>Click</kbd> section &middot; <kbd>Esc</kbd> reset
+</div>
+
+<div class="tooltip" id="tooltip"></div>
+<div class="open-toast" id="open-toast">Opening in Obsidian&hellip;</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<script>
+
+const DIFF_COLORS = {
+  foundational: "#22C55E",
+  intermediate: "#F59E0B",
+  advanced:     "#EF4444",
+  unknown:      "#6B7280"
+};
+
+const DIFF_BADGE_CLASS = {
+  foundational: "tt-diff-f",
+  intermediate: "tt-diff-i",
+  advanced:     "tt-diff-a"
+};
+
+const sections = [
+  {
+    id: "00-MOC", name: "MOC", color: "#F59E0B", lightColor: "#FDE68A",
+    files: ["Dashboard","Learning-Path-Healthcare-IT-Epic-Security","Learning-Path-Penetration-Tester","Learning-Path-SOC-Analyst","Learning-Path-ServiceNow-Security-Admin","TechOps-Vault","TechOps-MOC","Vault-Search"],
+    difficulty: { "Dashboard":"foundational","Learning-Path-Healthcare-IT-Epic-Security":"foundational","Learning-Path-Penetration-Tester":"foundational","Learning-Path-SOC-Analyst":"foundational","Learning-Path-ServiceNow-Security-Admin":"foundational","TechOps-Vault":"foundational","TechOps-MOC":"foundational","Vault-Search":"foundational" }
+  },
+  {
+    id: "01-Fundamentals", name: "Fundamentals", color: "#3B82F6", lightColor: "#93C5FD",
+    files: ["Active-Directory","CIA-Triad","Cloud-Security-Fundamentals","Container-Docker-Security","Cryptography-Basics","Digital-Forensics","Incident-Response","Linux-Privilege-Escalation","Malware-Analysis","Network-Defense-Blue-Team","Networking-Basics","OSI-Model","OSINT-Methodology","OWASP-Top-10","Penetration-Testing-Methodology","Reverse-Engineering-Basics","Social-Engineering","TCP-IP-Fundamentals","Threat-Intelligence","Vulnerability-Management","Web-Application-Testing","Windows-Privilege-Escalation","Wireless-Security"],
+    difficulty: {
+      "Active-Directory":"intermediate","CIA-Triad":"foundational","Cloud-Security-Fundamentals":"intermediate",
+      "Container-Docker-Security":"intermediate","Cryptography-Basics":"foundational","Digital-Forensics":"advanced",
+      "Incident-Response":"intermediate","Linux-Privilege-Escalation":"advanced","Malware-Analysis":"advanced",
+      "Network-Defense-Blue-Team":"intermediate","Networking-Basics":"foundational","OSI-Model":"foundational",
+      "OSINT-Methodology":"intermediate","OWASP-Top-10":"intermediate","Penetration-Testing-Methodology":"intermediate",
+      "Reverse-Engineering-Basics":"advanced","Social-Engineering":"foundational","TCP-IP-Fundamentals":"foundational",
+      "Threat-Intelligence":"intermediate","Vulnerability-Management":"intermediate","Web-Application-Testing":"intermediate",
+      "Windows-Privilege-Escalation":"advanced","Wireless-Security":"intermediate"
+    }
+  },
+  {
+    id: "02-Tools", name: "Tools", color: "#14B8A6", lightColor: "#5EEAD4",
+    files: ["Autopsy","BloodHound","Burp-Suite","CrackMapExec","Evil-WinRM","Gobuster","Hashcat","Hydra","Impacket","John-the-Ripper","Metasploit","Netcat","Nikto","Nmap","OpenVAS-Nessus","Responder","SQLmap","Volatility","Wireshark","ffuf"],
+    difficulty: {
+      "Autopsy":"advanced","BloodHound":"advanced","Burp-Suite":"intermediate","CrackMapExec":"advanced",
+      "Evil-WinRM":"intermediate","Gobuster":"foundational","Hashcat":"intermediate","Hydra":"intermediate",
+      "Impacket":"advanced","John-the-Ripper":"foundational","Metasploit":"intermediate","Netcat":"foundational",
+      "Nikto":"foundational","Nmap":"foundational","OpenVAS-Nessus":"intermediate","Responder":"advanced",
+      "SQLmap":"intermediate","Volatility":"advanced","Wireshark":"intermediate","ffuf":"intermediate"
+    }
+  },
+  {
+    id: "03-Labs", name: "Labs", color: "#22C55E", lightColor: "#86EFAC",
+    files: ["Custom-Lab-Nmap-Enumeration","HTB-Bashed","HTB-Bastard","HTB-Devel","HTB-Jerry","HTB-Lame","HTB-Netmon","HTB-Nibbles","HTB-Optimum","HTB-Shocker","THM-Blue","THM-Ice","THM-Kenobi","THM-Relevant","THM-Steel-Mountain","THM-Vulnversity"],
+    difficulty: {
+      "Custom-Lab-Nmap-Enumeration":"foundational","HTB-Bashed":"intermediate","HTB-Bastard":"advanced",
+      "HTB-Devel":"foundational","HTB-Jerry":"foundational","HTB-Lame":"foundational","HTB-Netmon":"foundational",
+      "HTB-Nibbles":"intermediate","HTB-Optimum":"intermediate","HTB-Shocker":"intermediate","THM-Blue":"foundational",
+      "THM-Ice":"intermediate","THM-Kenobi":"foundational","THM-Relevant":"intermediate",
+      "THM-Steel-Mountain":"intermediate","THM-Vulnversity":"foundational"
+    }
+  },
+  {
+    id: "04-CTF", name: "CTF", color: "#8B5CF6", lightColor: "#C4B5FD",
+    files: ["CTF-Binary-Exploitation","CTF-Crypto-Attacks","CTF-Forensics-Techniques","CTF-Methodology","CTF-Quick-Reference","CTF-Web-Exploitation"],
+    difficulty: {
+      "CTF-Binary-Exploitation":"advanced","CTF-Crypto-Attacks":"advanced","CTF-Forensics-Techniques":"intermediate",
+      "CTF-Methodology":"intermediate","CTF-Quick-Reference":"foundational","CTF-Web-Exploitation":"intermediate"
+    }
+  },
+  {
+    id: "05-Certs", name: "Certs", color: "#F97316", lightColor: "#FDBA74",
+    files: ["CEH-v12","CompTIA-Aplus-220-1201-1202","CompTIA-Aplus-Core1-220-1201","CompTIA-Aplus-Core2-220-1202","CySA-Plus-CS0-003","OSCP-PEN-200","Security-Plus-SY0-701","ServiceNow-ATF-Micro-Cert","ServiceNow-CAD","ServiceNow-CIS-CSM","ServiceNow-CIS-DF","ServiceNow-CIS-Disco","ServiceNow-CIS-EM","ServiceNow-CIS-FSM","ServiceNow-CIS-HAM","ServiceNow-CIS-HR","ServiceNow-CIS-ITSM","ServiceNow-CIS-PA","ServiceNow-CIS-RC","ServiceNow-CIS-SAM","ServiceNow-CIS-SIR","ServiceNow-CIS-SM","ServiceNow-CIS-SP","ServiceNow-CIS-SPM","ServiceNow-CIS-TPRM","ServiceNow-CIS-VR","ServiceNow-CMA","ServiceNow-CSA","ServiceNow-CTA","ServiceNow-Micro-Cert-ATF","ServiceNow-Micro-Cert-Flows","ServiceNow-Micro-Cert-Platform-Analytics","ServiceNow-Micro-Cert-Welcome","eJPT-INE"],
+    difficulty: {
+      "CEH-v12":"advanced","CompTIA-Aplus-220-1201-1202":"foundational","CompTIA-Aplus-Core1-220-1201":"foundational","CompTIA-Aplus-Core2-220-1202":"foundational","CySA-Plus-CS0-003":"intermediate",
+      "OSCP-PEN-200":"advanced","Security-Plus-SY0-701":"intermediate","ServiceNow-ATF-Micro-Cert":"foundational",
+      "ServiceNow-CAD":"intermediate","ServiceNow-CIS-CSM":"intermediate","ServiceNow-CIS-DF":"intermediate",
+      "ServiceNow-CIS-Disco":"intermediate","ServiceNow-CIS-EM":"intermediate","ServiceNow-CIS-FSM":"intermediate",
+      "ServiceNow-CIS-HAM":"intermediate","ServiceNow-CIS-HR":"foundational","ServiceNow-CIS-ITSM":"intermediate",
+      "ServiceNow-CIS-PA":"intermediate","ServiceNow-CIS-RC":"intermediate","ServiceNow-CIS-SAM":"intermediate",
+      "ServiceNow-CIS-SIR":"intermediate","ServiceNow-CIS-SM":"intermediate","ServiceNow-CIS-SP":"foundational",
+      "ServiceNow-CIS-SPM":"intermediate","ServiceNow-CIS-TPRM":"advanced","ServiceNow-CIS-VR":"intermediate",
+      "ServiceNow-CMA":"intermediate","ServiceNow-CSA":"foundational","ServiceNow-CTA":"advanced",
+      "ServiceNow-Micro-Cert-ATF":"foundational","ServiceNow-Micro-Cert-Flows":"foundational",
+      "ServiceNow-Micro-Cert-Platform-Analytics":"foundational","ServiceNow-Micro-Cert-Welcome":"foundational",
+      "eJPT-INE":"intermediate"
+    }
+  },
+  {
+    id: "06-Reference", name: "Reference", color: "#EF4444", lightColor: "#FCA5A5",
+    files: ["AD-Attack-Reference","Bash-Scripting","Common-Ports","Database-Security-Reference","Encoding-Decoding-Reference","File-Transfer-Techniques","JavaScript-Fundamentals","Linux-Commands","PowerShell-Security","Python-for-Security","Regex-Reference","Reverse-Shell-Cheatsheet","ServiceNow-Flow-Designer","ServiceNow-JavaScript","ServiceNow-Navigator-Shortcuts","System-Admin-Reference","Vulnerability-Research-Reference","Windows-Commands"],
+    difficulty: {
+      "AD-Attack-Reference":"intermediate","Bash-Scripting":"foundational","Common-Ports":"foundational",
+      "Database-Security-Reference":"intermediate","Encoding-Decoding-Reference":"foundational",
+      "File-Transfer-Techniques":"intermediate","JavaScript-Fundamentals":"foundational","Linux-Commands":"foundational",
+      "PowerShell-Security":"intermediate","Python-for-Security":"intermediate","Regex-Reference":"foundational",
+      "Reverse-Shell-Cheatsheet":"intermediate","ServiceNow-Flow-Designer":"intermediate",
+      "ServiceNow-JavaScript":"intermediate","ServiceNow-Navigator-Shortcuts":"foundational",
+      "System-Admin-Reference":"intermediate","Vulnerability-Research-Reference":"intermediate","Windows-Commands":"foundational"
+    }
+  },
+  {
+    id: "07-Projects", name: "Projects", color: "#EC4899", lightColor: "#F9A8D4",
+    files: ["Home-Lab-Setup","Project-Template","Home-Lab-Progress-Log","CTF-Writeup-Template"],
+    difficulty: { "Home-Lab-Setup":"intermediate","Project-Template":"foundational","Home-Lab-Progress-Log":"intermediate","CTF-Writeup-Template":"foundational" }
+  },
+  {
+    id: "08-Learning-Log", name: "Learning Log", color: "#84CC16", lightColor: "#BEF264",
+    files: ["Learning-Log-2026-03-23","Learning-Log-2026-03-23-S2","Learning-Log-2026-03-26","Learning-Log-2026-03-27","Learning-Log-2026-03-27-S5","Learning-Log-2026-03-28-S6","Learning-Log-2026-03-29-S7","Learning-Log-2026-04-02-S8","Learning-Log-Index"],
+    difficulty: {
+      "Learning-Log-2026-03-23":"foundational","Learning-Log-2026-03-23-S2":"foundational",
+      "Learning-Log-2026-03-26":"foundational","Learning-Log-2026-03-27":"foundational",
+      "Learning-Log-2026-03-27-S5":"foundational","Learning-Log-2026-03-28-S6":"foundational",
+      "Learning-Log-2026-03-29-S7":"foundational","Learning-Log-2026-04-02-S8":"foundational",
+      "Learning-Log-Index":"foundational"
+    }
+  },
+  {
+    id: "09-Epic", name: "Epic", color: "#6366F1", lightColor: "#A5B4FC",
+    files: ["Epic-Clinic-Workflow","Epic-Content-Management","Epic-Department-Build-Facility-Structure","Epic-MyChart-Rules","Epic-Overview","Epic-Patient-Self-Service","Epic-Pools-Blocks-Modifiers","Epic-Provider-Masterfile","Epic-Questionnaire-Build","Epic-Reporting-Workbench-Slicer-Dicer","Epic-Session-Definitions-Limits","Epic-SmartText-SmartPhrases"],
+    difficulty: {
+      "Epic-Clinic-Workflow":"intermediate","Epic-Content-Management":"intermediate",
+      "Epic-Department-Build-Facility-Structure":"advanced","Epic-MyChart-Rules":"intermediate",
+      "Epic-Overview":"foundational","Epic-Patient-Self-Service":"foundational",
+      "Epic-Pools-Blocks-Modifiers":"advanced","Epic-Provider-Masterfile":"intermediate",
+      "Epic-Questionnaire-Build":"intermediate","Epic-Reporting-Workbench-Slicer-Dicer":"intermediate",
+      "Epic-Session-Definitions-Limits":"intermediate","Epic-SmartText-SmartPhrases":"foundational"
+    }
+  },
+  {
+    id: "10-Healthcare-IT", name: "Healthcare IT", color: "#06B6D4", lightColor: "#67E8F9",
+    files: ["HIPAA-Technical-Safeguards","HL7-FHIR-Fundamentals","HL7-v2-Messaging","Healthcare-IT-Integration-Patterns","Healthcare-IT-Overview","ServiceNow-Epic-Integration","TEFCA-Care-Coordination"],
+    difficulty: {
+      "HIPAA-Technical-Safeguards":"intermediate","HL7-FHIR-Fundamentals":"intermediate",
+      "HL7-v2-Messaging":"intermediate","Healthcare-IT-Integration-Patterns":"advanced",
+      "Healthcare-IT-Overview":"foundational","ServiceNow-Epic-Integration":"advanced","TEFCA-Care-Coordination":"advanced"
+    }
+  },
+  {
+    id: "11-Medical-Devices", name: "Medical Devices", color: "#D97706", lightColor: "#FCD34D",
+    files: ["FDA-Cybersecurity-Guidance","IoT-OT-Security-Fundamentals","Medical-Device-Incident-Response","Medical-Device-Network-Security","Medical-Device-Risk-Management","Medical-Devices-Overview"],
+    difficulty: {
+      "FDA-Cybersecurity-Guidance":"intermediate","IoT-OT-Security-Fundamentals":"intermediate",
+      "Medical-Device-Incident-Response":"advanced","Medical-Device-Network-Security":"advanced",
+      "Medical-Device-Risk-Management":"advanced","Medical-Devices-Overview":"foundational"
+    }
+  },
+  {
+    id: "Session-Reference", name: "Session Refs", color: "#64748B", lightColor: "#94A3B8",
+    files: ["Session-Reference","Session-Reference-S9","Session-Reference-S10","Session-Reference-S11","Session-Reference-S12","Session-Reference-S13","Session-Reference-S14"],
+    difficulty: { "Session-Reference":"foundational","Session-Reference-S9":"foundational","Session-Reference-S10":"foundational","Session-Reference-S11":"foundational","Session-Reference-S12":"foundational","Session-Reference-S13":"foundational","Session-Reference-S14":"foundational" }
+  }
+];
+
+const wikilinkPairs = [
+  ["02-Tools/BloodHound",        "01-Fundamentals/Active-Directory"],
+  ["02-Tools/CrackMapExec",      "01-Fundamentals/Active-Directory"],
+  ["02-Tools/Evil-WinRM",        "01-Fundamentals/Active-Directory"],
+  ["02-Tools/Responder",         "01-Fundamentals/Active-Directory"],
+  ["02-Tools/Impacket",          "01-Fundamentals/Active-Directory"],
+  ["02-Tools/Wireshark",         "01-Fundamentals/Network-Defense-Blue-Team"],
+  ["02-Tools/Wireshark",         "01-Fundamentals/Networking-Basics"],
+  ["02-Tools/Volatility",        "01-Fundamentals/Malware-Analysis"],
+  ["02-Tools/Volatility",        "01-Fundamentals/Digital-Forensics"],
+  ["02-Tools/Autopsy",           "01-Fundamentals/Digital-Forensics"],
+  ["02-Tools/Burp-Suite",        "01-Fundamentals/Web-Application-Testing"],
+  ["02-Tools/Burp-Suite",        "01-Fundamentals/OWASP-Top-10"],
+  ["02-Tools/Nikto",             "01-Fundamentals/Web-Application-Testing"],
+  ["02-Tools/SQLmap",            "01-Fundamentals/OWASP-Top-10"],
+  ["02-Tools/Metasploit",        "01-Fundamentals/Penetration-Testing-Methodology"],
+  ["02-Tools/Nmap",              "01-Fundamentals/Networking-Basics"],
+  ["02-Tools/Nmap",              "03-Labs/Custom-Lab-Nmap-Enumeration"],
+  ["02-Tools/Metasploit",        "03-Labs/HTB-Lame"],
+  ["02-Tools/Metasploit",        "03-Labs/HTB-Jerry"],
+  ["02-Tools/Metasploit",        "03-Labs/HTB-Devel"],
+  ["02-Tools/Burp-Suite",        "03-Labs/THM-Relevant"],
+  ["02-Tools/BloodHound",        "03-Labs/HTB-Bashed"],
+  ["02-Tools/Netcat",            "06-Reference/Reverse-Shell-Cheatsheet"],
+  ["06-Reference/AD-Attack-Reference",       "01-Fundamentals/Active-Directory"],
+  ["06-Reference/Linux-Commands",            "01-Fundamentals/Linux-Privilege-Escalation"],
+  ["06-Reference/PowerShell-Security",       "01-Fundamentals/Windows-Privilege-Escalation"],
+  ["06-Reference/Python-for-Security",       "01-Fundamentals/Penetration-Testing-Methodology"],
+  ["06-Reference/File-Transfer-Techniques",  "06-Reference/Reverse-Shell-Cheatsheet"],
+  ["05-Certs/Security-Plus-SY0-701",  "01-Fundamentals/CIA-Triad"],
+  ["05-Certs/Security-Plus-SY0-701",  "01-Fundamentals/Networking-Basics"],
+  ["05-Certs/Security-Plus-SY0-701",  "01-Fundamentals/Cryptography-Basics"],
+  ["05-Certs/CySA-Plus-CS0-003",      "01-Fundamentals/Threat-Intelligence"],
+  ["05-Certs/CySA-Plus-CS0-003",      "01-Fundamentals/Incident-Response"],
+  ["05-Certs/OSCP-PEN-200",           "01-Fundamentals/Penetration-Testing-Methodology"],
+  ["05-Certs/eJPT-INE",               "01-Fundamentals/Penetration-Testing-Methodology"],
+  ["05-Certs/OSCP-PEN-200",  "02-Tools/Metasploit"],
+  ["05-Certs/OSCP-PEN-200",  "02-Tools/Nmap"],
+  ["05-Certs/ServiceNow-CSA",  "06-Reference/ServiceNow-JavaScript"],
+  ["05-Certs/ServiceNow-CSA",  "06-Reference/ServiceNow-Flow-Designer"],
+  ["05-Certs/ServiceNow-CSA",  "06-Reference/ServiceNow-Navigator-Shortcuts"],
+  ["04-CTF/CTF-Methodology",         "01-Fundamentals/Penetration-Testing-Methodology"],
+  ["04-CTF/CTF-Web-Exploitation",    "01-Fundamentals/Web-Application-Testing"],
+  ["04-CTF/CTF-Binary-Exploitation", "01-Fundamentals/Reverse-Engineering-Basics"],
+  ["04-CTF/CTF-Forensics-Techniques","01-Fundamentals/Digital-Forensics"],
+  ["04-CTF/CTF-Crypto-Attacks",      "01-Fundamentals/Cryptography-Basics"],
+  ["04-CTF/CTF-Web-Exploitation",  "02-Tools/Burp-Suite"],
+  ["04-CTF/CTF-Web-Exploitation",  "02-Tools/SQLmap"],
+  ["09-Epic/Epic-Overview",                          "10-Healthcare-IT/Healthcare-IT-Overview"],
+  ["09-Epic/Epic-Overview",                          "10-Healthcare-IT/ServiceNow-Epic-Integration"],
+  ["09-Epic/Epic-Reporting-Workbench-Slicer-Dicer",  "10-Healthcare-IT/HL7-FHIR-Fundamentals"],
+  ["10-Healthcare-IT/HIPAA-Technical-Safeguards",          "11-Medical-Devices/Medical-Device-Risk-Management"],
+  ["10-Healthcare-IT/Healthcare-IT-Integration-Patterns",  "11-Medical-Devices/Medical-Device-Network-Security"],
+  ["11-Medical-Devices/Medical-Device-Network-Security",  "01-Fundamentals/Network-Defense-Blue-Team"],
+  ["11-Medical-Devices/FDA-Cybersecurity-Guidance",       "01-Fundamentals/Vulnerability-Management"],
+  ["11-Medical-Devices/Medical-Device-Incident-Response", "01-Fundamentals/Incident-Response"],
+  ["03-Labs/HTB-Lame",  "06-Reference/Reverse-Shell-Cheatsheet"],
+  ["03-Labs/THM-Blue",  "06-Reference/Windows-Commands"],
+];
+
+let colorMode    = "section";
+let diffFilter   = "all";
+let activeSection = null;
+let showWikilinks = false;
+
+const nodes = [];
+const folderLinks = [];
+
+const cx = window.innerWidth / 2;
+const cy = window.innerHeight / 2;
+const clusterRadius = Math.min(cx, cy) * 0.65;
+
+sections.forEach((sec, i) => {
+  const angle = (i / sections.length) * 2 * Math.PI - Math.PI / 2;
+  const hx = cx + clusterRadius * Math.cos(angle);
+  const hy = cy + clusterRadius * Math.sin(angle);
+
+  const hubNode = {
+    id: sec.id, name: sec.name, type: "hub",
+    section: sec.id, sectionName: sec.name,
+    color: sec.color, lightColor: sec.lightColor,
+    radius: 18 + Math.sqrt(sec.files.length) * 4,
+    clusterX: hx, clusterY: hy,
+    x: hx + (Math.random() - 0.5) * 20,
+    y: hy + (Math.random() - 0.5) * 20
+  };
+  nodes.push(hubNode);
+
+  sec.files.forEach((file, fi) => {
+    const fAngle = (fi / sec.files.length) * 2 * Math.PI;
+    const spread = 40 + sec.files.length * 3;
+    const fileNode = {
+      id: sec.id + "/" + file,
+      name: file.replace(/-/g, " "),
+      displayName: file,
+      type: "file",
+      section: sec.id,
+      sectionName: sec.name,
+      difficulty: (sec.difficulty && sec.difficulty[file]) || "unknown",
+      color: sec.lightColor,
+      hubColor: sec.color,
+      radius: 5,
+      clusterX: hx, clusterY: hy,
+      x: hx + spread * Math.cos(fAngle) + (Math.random() - 0.5) * 30,
+      y: hy + spread * Math.sin(fAngle) + (Math.random() - 0.5) * 30
+    };
+    nodes.push(fileNode);
+    folderLinks.push({ source: sec.id, target: fileNode.id, type: "folder" });
+  });
+});
+
+const nodeById = new Map(nodes.map(n => [n.id, n]));
+const resolvedWikilinks = wikilinkPairs
+  .map(([s, t]) => ({ source: nodeById.get(s), target: nodeById.get(t) }))
+  .filter(l => l.source && l.target);
+
+document.getElementById("wiki-count").textContent = resolvedWikilinks.length;
+
+const width = window.innerWidth;
+const height = window.innerHeight;
+
+const svg = d3.select("#viz-container")
+  .append("svg")
+  .attr("width", width)
+  .attr("height", height);
+
+const defs = svg.append("defs");
+
+const glow = defs.append("filter").attr("id", "glow")
+  .attr("x", "-50%").attr("y", "-50%").attr("width", "200%").attr("height", "200%");
+glow.append("feGaussianBlur").attr("stdDeviation", "4").attr("result", "blur");
+glow.append("feComposite").attr("in", "SourceGraphic").attr("in2", "blur").attr("operator", "over");
+
+const g = svg.append("g");
+
+const zoom = d3.zoom()
+  .scaleExtent([0.2, 5])
+  .on("zoom", (event) => {
+    g.attr("transform", event.transform);
+    document.getElementById("zoom-level").textContent = event.transform.k.toFixed(1) + "x";
+  });
+
+svg.call(zoom);
+
+svg.on("click", function(event) {
+  if (event.target === this.querySelector("rect") || event.target === this || event.target.tagName === "svg") {
+    document.getElementById("search").value = "";
+    activeSection = null;
+    document.querySelectorAll(".legend-item").forEach(el => el.classList.remove("dimmed","active-filter"));
+    resetHighlight();
+    svg.transition().duration(400).call(zoom.transform, d3.zoomIdentity);
+  }
+});
+
+function forceCluster(strength = 0.08) {
+  let _nodes;
+  function force(alpha) {
+    _nodes.forEach(d => {
+      const s = d.type === "file" ? strength : strength * 0.3;
+      d.vx += (d.clusterX - d.x) * s * alpha;
+      d.vy += (d.clusterY - d.y) * s * alpha;
+    });
+  }
+  force.initialize = function(_) { _nodes = _; };
+  return force;
+}
+
+const simulation = d3.forceSimulation(nodes)
+  .force("link", d3.forceLink(folderLinks).id(d => d.id).distance(30 + Math.random() * 20).strength(0.15))
+  .force("charge", d3.forceManyBody().strength(d => d.type === "hub" ? -120 : -18))
+  .force("cluster", forceCluster(0.12))
+  .force("collide", d3.forceCollide(d => d.radius + 2).strength(0.7))
+  .force("center", d3.forceCenter(cx, cy).strength(0.01))
+  .alphaDecay(0.015)
+  .velocityDecay(0.35);
+
+const wikilinkGroup = g.append("g").attr("class", "wikilinks");
+
+const wikilinkElements = wikilinkGroup.selectAll("line")
+  .data(resolvedWikilinks)
+  .join("line")
+  .attr("stroke", "#6366F1")
+  .attr("stroke-opacity", 0)
+  .attr("stroke-width", 0.8)
+  .attr("stroke-dasharray", "3 4")
+  .style("pointer-events", "none");
+
+const linkElements = g.append("g")
+  .selectAll("line")
+  .data(folderLinks)
+  .join("line")
+  .attr("stroke", d => {
+    const sec = sections.find(s => s.id === (typeof d.source === "object" ? d.source.id : d.source));
+    return sec ? sec.color : "#333";
+  })
+  .attr("stroke-opacity", 0.08)
+  .attr("stroke-width", 0.5);
+
+const nodeElements = g.append("g")
+  .selectAll("g")
+  .data(nodes)
+  .join("g")
+  .attr("class", d => d.type === "hub" ? "node-hub" : "node-file")
+  .style("cursor", "pointer")
+  .call(d3.drag()
+    .on("start", dragStart)
+    .on("drag", dragging)
+    .on("end", dragEnd));
+
+nodeElements.filter(d => d.type === "hub")
+  .append("circle")
+  .attr("r", d => d.radius)
+  .attr("fill", d => d.color)
+  .attr("stroke", d => d.color)
+  .attr("stroke-width", 2)
+  .attr("stroke-opacity", 0.4)
+  .attr("filter", "url(#glow)");
+
+nodeElements.filter(d => d.type === "hub")
+  .append("text")
+  .text(d => d.name)
+  .attr("font-size", d => Math.max(8, Math.min(11, d.radius * 0.5)));
+
+const fileCircles = nodeElements.filter(d => d.type === "file")
+  .append("circle")
+  .attr("r", d => d.radius)
+  .attr("opacity", 0.85);
+
+updateNodeColors();
+
+function getFileFillColor(d) {
+  if (colorMode === "difficulty") return DIFF_COLORS[d.difficulty] || DIFF_COLORS.unknown;
+  return d.color;
+}
+
+function getFileStrokeColor(d) {
+  if (colorMode === "difficulty") return DIFF_COLORS[d.difficulty] || DIFF_COLORS.unknown;
+  return d.hubColor;
+}
+
+function getFileOpacity(d) {
+  if (diffFilter !== "all" && d.difficulty !== diffFilter) return 0.05;
+  if (activeSection && d.section !== activeSection) return 0.05;
+  return 0.88;
+}
+
+function getHubOpacity(d) {
+  if (activeSection && d.section !== activeSection) return 0.12;
+  return 1;
+}
+
+function updateNodeColors() {
+  fileCircles
+    .attr("fill", d => getFileFillColor(d))
+    .attr("stroke", d => getFileStrokeColor(d))
+    .attr("stroke-width", 0.8)
+    .attr("stroke-opacity", 0.6)
+    .attr("opacity", d => getFileOpacity(d));
+
+  nodeElements.filter(d => d.type === "hub")
+    .select("circle")
+    .attr("opacity", d => getHubOpacity(d));
+}
+
+function applyHighlight(sectionId) {
+  fileCircles.attr("opacity", d => {
+    if (diffFilter !== "all" && d.difficulty !== diffFilter) return 0.05;
+    return d.section === sectionId ? 0.95 : 0.05;
+  });
+  nodeElements.filter(d => d.type === "hub")
+    .select("circle")
+    .attr("opacity", d => d.section === sectionId ? 1 : 0.1);
+  linkElements.attr("stroke-opacity", l => {
+    const src = typeof l.source === "object" ? l.source : nodeById.get(l.source);
+    return src && src.section === sectionId ? 0.22 : 0.02;
+  });
+  if (showWikilinks) {
+    wikilinkElements.attr("stroke-opacity", l =>
+      l.source.section === sectionId || l.target.section === sectionId ? 0.55 : 0.03
+    );
+  }
+}
+
+function resetHighlight() {
+  updateNodeColors();
+  linkElements.attr("stroke-opacity", 0.08);
+  if (showWikilinks) {
+    wikilinkElements.attr("stroke-opacity", 0.18);
+  }
+}
+
+let toastTimer = null;
+function showToast(msg) {
+  const toast = document.getElementById("open-toast");
+  toast.textContent = msg;
+  toast.classList.add("visible");
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toast.classList.remove("visible"), 1800);
+}
+
+function pulseNode(selection, baseRadius) {
+  selection.select("circle")
+    .transition().duration(120).attr("r", baseRadius * 1.4)
+    .transition().duration(180).attr("r", baseRadius);
+}
+
+nodeElements.filter(d => d.type === "hub").on("click", function(event, d) {
+  event.stopPropagation();
+  pulseNode(d3.select(this), d.radius);
+  if (activeSection === d.section) {
+    activeSection = null;
+    document.querySelectorAll(".legend-item").forEach(el => el.classList.remove("dimmed","active-filter"));
+    resetHighlight();
+  } else {
+    activeSection = d.section;
+    document.querySelectorAll(".legend-item").forEach(el => {
+      el.classList.toggle("dimmed", el.dataset.section !== d.section);
+      el.classList.toggle("active-filter", el.dataset.section === d.section);
+    });
+    applyHighlight(d.section);
+  }
+});
+
+nodeElements.filter(d => d.type === "file").on("click", function(event, d) {
+  event.stopPropagation();
+  pulseNode(d3.select(this), d.radius);
+  const filePath = encodeURIComponent(d.section + "/" + d.displayName);
+  window.open("obsidian://open?vault=TechOps&file=" + filePath, "_self");
+  showToast("Opening " + d.displayName + "...");
+});
+
+const tooltip = document.getElementById("tooltip");
+
+nodeElements.on("mouseenter", function(event, d) {
+  const sec = sections.find(s => s.id === d.section);
+  const nameColor = d.type === "hub" ? d.color : (colorMode === "difficulty" ? DIFF_COLORS[d.difficulty] : d.hubColor);
+  const diffBadge = d.type === "file" && d.difficulty
+    ? `<span class="tt-badge ${DIFF_BADGE_CLASS[d.difficulty] || ''}">${d.difficulty}</span>` : "";
+  const secBadge = `<span class="tt-badge" style="background:${sec.color}22;color:${sec.color}">${sec.name}${d.type === "hub" ? " &middot; " + sec.files.length + " notes" : ""}</span>`;
+  const pathLine = d.type === "file"
+    ? `<div class="tt-path">${d.section}/${d.displayName}.md</div>`
+    : `<div class="tt-path">${d.section}/</div>`;
+  const clickHint = d.type === "file"
+    ? `<div style="margin-top:5px;font-size:10px;color:var(--text3)">Click to open in Obsidian</div>`
+    : `<div style="margin-top:5px;font-size:10px;color:var(--text3)">Click to filter section</div>`;
+
+  tooltip.innerHTML = `
+    <div class="tt-name" style="color:${nameColor}">${d.name}</div>
+    ${pathLine}
+    <div class="tt-badges">${secBadge}${diffBadge}</div>
+    ${clickHint}
+  `;
+  tooltip.style.opacity = 1;
+
+  if (!activeSection) {
+    applyHighlight(d.section);
+  }
+});
+
+nodeElements.on("mousemove", function(event) {
+  tooltip.style.left = (event.clientX + 14) + "px";
+  tooltip.style.top  = (event.clientY - 10) + "px";
+});
+
+nodeElements.on("mouseleave", function() {
+  tooltip.style.opacity = 0;
+  if (!activeSection) resetHighlight();
+});
+
+simulation.on("tick", () => {
+  linkElements
+    .attr("x1", d => d.source.x).attr("y1", d => d.source.y)
+    .attr("x2", d => d.target.x).attr("y2", d => d.target.y);
+
+  wikilinkElements
+    .attr("x1", d => d.source.x).attr("y1", d => d.source.y)
+    .attr("x2", d => d.target.x).attr("y2", d => d.target.y);
+
+  nodeElements.attr("transform", d => `translate(${d.x},${d.y})`);
+});
+
+function dragStart(event, d) {
+  if (!event.active) simulation.alphaTarget(0.1).restart();
+  d.fx = d.x; d.fy = d.y;
+}
+function dragging(event, d) { d.fx = event.x; d.fy = event.y; }
+function dragEnd(event, d) {
+  if (!event.active) simulation.alphaTarget(0);
+  d.fx = null; d.fy = null;
+}
+
+document.getElementById("search").addEventListener("input", function() {
+  const q = this.value.toLowerCase().trim();
+  if (!q) { resetHighlight(); return; }
+  fileCircles
+    .attr("opacity", d => {
+      const match = d.name.toLowerCase().includes(q) || (d.displayName && d.displayName.toLowerCase().includes(q)) || d.sectionName.toLowerCase().includes(q);
+      return match ? 1 : 0.04;
+    })
+    .attr("r", d => {
+      const match = d.name.toLowerCase().includes(q) || (d.displayName && d.displayName.toLowerCase().includes(q));
+      return match ? d.radius * 1.6 : d.radius;
+    });
+  nodeElements.filter(d => d.type === "hub")
+    .select("circle")
+    .attr("opacity", d => d.sectionName.toLowerCase().includes(q) ? 1 : 0.1);
+  linkElements.attr("stroke-opacity", 0.02);
+  wikilinkElements.attr("stroke-opacity", 0);
+});
+
+document.getElementById("color-section").addEventListener("click", function() {
+  colorMode = "section";
+  this.classList.add("active");
+  document.getElementById("color-difficulty").classList.remove("active");
+  document.getElementById("diff-filter-row").style.display = "none";
+  document.getElementById("diff-key").classList.remove("visible");
+  updateNodeColors();
+  if (activeSection) applyHighlight(activeSection);
+});
+
+document.getElementById("color-difficulty").addEventListener("click", function() {
+  colorMode = "difficulty";
+  this.classList.add("active");
+  document.getElementById("color-section").classList.remove("active");
+  document.getElementById("diff-filter-row").style.display = "flex";
+  document.getElementById("diff-key").classList.add("visible");
+  updateNodeColors();
+  if (activeSection) applyHighlight(activeSection);
+});
+
+document.querySelectorAll(".diff-chip").forEach(chip => {
+  chip.addEventListener("click", function() {
+    diffFilter = this.dataset.diff;
+    document.querySelectorAll(".diff-chip").forEach(c => c.classList.remove("active"));
+    this.classList.add("active");
+    updateNodeColors();
+    if (activeSection) applyHighlight(activeSection);
+  });
+});
+
+document.getElementById("wiki-toggle").addEventListener("click", function() {
+  showWikilinks = !showWikilinks;
+  this.classList.toggle("wiki-active", showWikilinks);
+  this.textContent = showWikilinks ? "Hide connections" : "Show connections";
+  const opacity = showWikilinks ? 0.18 : 0;
+  wikilinkElements.attr("stroke-opacity", opacity);
+  if (showWikilinks && activeSection) applyHighlight(activeSection);
+});
+
+const legendGrid = document.getElementById("legend-grid");
+
+sections.forEach(sec => {
+  const item = document.createElement("div");
+  item.className = "legend-item";
+  item.dataset.section = sec.id;
+  item.innerHTML = `<div class="legend-dot" style="background:${sec.color}"></div><span>${sec.name}</span><span class="legend-count">${sec.files.length}</span>`;
+
+  item.addEventListener("click", () => {
+    if (activeSection === sec.id) {
+      activeSection = null;
+      document.querySelectorAll(".legend-item").forEach(el => el.classList.remove("dimmed","active-filter"));
+      resetHighlight();
+    } else {
+      activeSection = sec.id;
+      document.querySelectorAll(".legend-item").forEach(el => {
+        el.classList.toggle("dimmed", el.dataset.section !== sec.id);
+        el.classList.toggle("active-filter", el.dataset.section === sec.id);
+      });
+      applyHighlight(sec.id);
+    }
+  });
+
+  legendGrid.appendChild(item);
+});
+
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") {
+    document.getElementById("search").value = "";
+    activeSection = null;
+    document.querySelectorAll(".legend-item").forEach(el => el.classList.remove("dimmed","active-filter"));
+    resetHighlight();
+    svg.transition().duration(500).call(zoom.transform, d3.zoomIdentity);
+  }
+});
+
+window.addEventListener("resize", () => {
+  svg.attr("width", window.innerWidth).attr("height", window.innerHeight);
+});
+
+</script>
+</body>
+</html>

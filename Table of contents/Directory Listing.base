@@ -1,0 +1,9 @@
+views:
+  - type: table
+    name: Table
+    order:
+      - file.folder
+      - file.name
+    sort: []
+    columnSize:
+      file.folder: 382

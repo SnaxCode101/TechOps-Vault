@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SecOps-Vault Search</title>
+<style>
+  :root { --bg:#0d1117;--surface:#161b22;--border:#30363d;--accent:#58a6ff;--green:#3fb950;--yellow:#d29922;--red:#f85149;--purple:#a371f7;--orange:#f0883e;--text:#e6edf3;--muted:#8b949e; }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh;padding:24px}
+  h1{font-size:1.6rem;color:var(--accent);margin-bottom:4px}
+  .subtitle{color:var(--muted);font-size:.85rem;margin-bottom:20px}
+  #searchBox{width:100%;padding:12px 16px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:1rem;outline:none;transition:border-color .2s}
+  #searchBox:focus{border-color:var(--accent)}
+  .filters{display:flex;flex-wrap:wrap;gap:8px;margin:16px 0}
+  .filter-btn{display:flex;align-items:center;gap:4px;padding:6px 12px;border-radius:20px;border:1px solid var(--border);background:var(--surface);color:var(--muted);cursor:pointer;font-size:.8rem;transition:all .2s}
+  .filter-btn:hover{border-color:var(--accent);color:var(--text)}
+  .filter-btn.active{border-color:var(--accent);color:var(--accent);background:rgba(88,166,255,.1)}
+  .filter-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;display:inline-block}
+  .stats{font-size:.8rem;color:var(--muted);margin-bottom:12px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px;cursor:pointer;transition:border-color .2s,transform .1s;position:relative}
+  .card:hover{border-color:var(--accent);transform:translateY(-1px)}
+  .card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px}
+  .card-folder{font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+  .copy-btn{background:none;border:1px solid var(--border);border-radius:4px;color:var(--muted);cursor:pointer;font-size:.72rem;padding:2px 6px;transition:all .2s;line-height:1.4;flex-shrink:0}
+  .copy-btn:hover{border-color:var(--accent);color:var(--accent)}
+  .card-title{font-size:.95rem;font-weight:600;margin-bottom:6px}
+  .card-desc{font-size:.8rem;color:var(--muted);line-height:1.4;margin-bottom:8px}
+  .tags{display:flex;flex-wrap:wrap;gap:4px}
+  .tag{font-size:.68rem;padding:2px 7px;border-radius:10px;background:rgba(88,166,255,.12);color:var(--accent)}
+  .open-hint{font-size:.68rem;color:var(--muted);margin-top:8px;opacity:0;transition:opacity .15s}
+  .card:hover .open-hint{opacity:1}
+  .toast{position:fixed;bottom:24px;right:24px;background:var(--surface);border:1px solid var(--border);color:var(--text);padding:10px 18px;border-radius:6px;font-size:.85rem;display:none;z-index:100;box-shadow:0 4px 16px rgba(0,0,0,.4)}
+  .f01{border-left:3px solid #3B82F6}
+  .f02{border-left:3px solid #14B8A6}
+  .f03{border-left:3px solid #22C55E}
+  .f04{border-left:3px solid #8B5CF6}
+  .f05{border-left:3px solid #F97316}
+  .f06{border-left:3px solid #EF4444}
+  .f07{border-left:3px solid #EC4899}
+  .f08{border-left:3px solid #84CC16}
+  .no-results{text-align:center;padding:48px;color:var(--muted)}
+</style>
+</head>
+<body>
+<h1>🔐 SecOps-Vault Search</h1>
+<div class="subtitle">79 notes · Click a card to open in Obsidian · Use ⧉ to copy wikilink</div>
+<input id="searchBox" type="text" placeholder="Search: nmap, XSS, CVE-2017-0144, kerberoasting, reverse shell, OSCP..." autofocus>
+<div class="filters" id="filters"></div>
+<div class="stats" id="stats"></div>
+<div class="grid" id="grid"></div>
+<div class="toast" id="toast"></div>
+<script>
+const NOTES=[
+  {title:"CIA Triad",folder:"01-Fundamentals",file:"CIA-Triad",desc:"Core security model: Confidentiality, Integrity, Availability. DAD Triad, Parkerian Hexad, security controls.",tags:["fundamentals","confidentiality","integrity","availability","least-privilege","non-repudiation","CIA"]},
+  {title:"Networking Basics",folder:"01-Fundamentals",file:"Networking-Basics",desc:"OSI layers, TCP/IP, subnetting, CIDR, NAT, ARP, routing, switching, VLANs, DNS.",tags:["networking","subnetting","CIDR","OSI","TCP/IP","routing","VLANs"]},
+  {title:"OSI Model",folder:"01-Fundamentals",file:"OSI-Model",desc:"7-layer OSI model: Physical, Data Link, Network, Transport, Session, Presentation, Application. PDU encapsulation.",tags:["OSI","layers","encapsulation","PDU","networking","fundamentals"]},
+  {title:"TCP/IP Fundamentals",folder:"01-Fundamentals",file:"TCP-IP-Fundamentals",desc:"TCP 3-way handshake, UDP, IP headers, TTL, SYN/ACK/FIN/RST flags, ports, sockets.",tags:["TCP","UDP","handshake","SYN","ACK","IP","headers","ports"]},
+  {title:"Cryptography Basics",folder:"01-Fundamentals",file:"Cryptography-Basics",desc:"Symmetric/asymmetric crypto, AES, RSA, ECC, DH, hashing SHA-256 MD5, PKI, TLS, certificates, digital signatures.",tags:["cryptography","AES","RSA","TLS","PKI","hashing","SHA-256","certificates"]},
+  {title:"Active Directory",folder:"01-Fundamentals",file:"Active-Directory",desc:"AD structure, LDAP, Kerberos, GPO, OU, domain, forest, trusts, NTLM, DCSync, Kerberoasting, AS-REP roasting.",tags:["active-directory","AD","Kerberos","LDAP","GPO","DCSync","Kerberoasting","NTLM","forest"]},
+  {title:"Linux Privilege Escalation",folder:"01-Fundamentals",file:"Linux-Privilege-Escalation",desc:"SUID/SGID, sudo misconfigs, cron, PATH injection, GTFOBins, LinPEAS, LD_PRELOAD, capabilities.",tags:["linux","privilege-escalation","SUID","sudo","cron","GTFOBins","LinPEAS","capabilities"]},
+  {title:"Windows Privilege Escalation",folder:"01-Fundamentals",file:"Windows-Privilege-Escalation",desc:"UAC bypass, token impersonation, SeImpersonatePrivilege, Potato attacks, WinPEAS, unquoted service paths.",tags:["windows","privilege-escalation","UAC","token","SeImpersonatePrivilege","Potato","WinPEAS"]},
+  {title:"OWASP Top 10",folder:"01-Fundamentals",file:"OWASP-Top-10",desc:"OWASP Top 10 2021: A01 Broken Access Control, injection, XSS, CSRF, SSRF, IDOR, insecure design.",tags:["OWASP","web","XSS","injection","CSRF","SSRF","IDOR","broken-auth","A01-A10"]},
+  {title:"Web Application Testing",folder:"01-Fundamentals",file:"Web-Application-Testing",desc:"Recon, directory busting, SQLi, XSS, SSRF, LFI, RFI, authentication bypass, Burp Suite methodology.",tags:["web","testing","SQLi","XSS","LFI","RFI","SSRF","Burp","fuzzing","authentication-bypass"]},
+  {title:"Penetration Testing Methodology",folder:"01-Fundamentals",file:"Penetration-Testing-Methodology",desc:"PTES phases: recon, scanning, enumeration, exploitation, post-exploitation, reporting. Rules of engagement.",tags:["pentest","methodology","PTES","recon","exploitation","post-exploitation","reporting"]},
+  {title:"Incident Response",folder:"01-Fundamentals",file:"Incident-Response",desc:"PICERL: Preparation, Identification, Containment, Eradication, Recovery, Lessons Learned. NIST SP 800-61.",tags:["incident-response","PICERL","NIST","containment","eradication","recovery","blue-team"]},
+  {title:"Malware Analysis",folder:"01-Fundamentals",file:"Malware-Analysis",desc:"Static/dynamic analysis, sandboxing, PE headers, strings, YARA rules, behavioral indicators, IOCs.",tags:["malware","analysis","static","dynamic","sandbox","YARA","IOC","PE-header","behavioral"]},
+  {title:"Digital Forensics",folder:"01-Fundamentals",file:"Digital-Forensics",desc:"Disk imaging, chain of custody, timeline analysis, FTK, Autopsy, log analysis, memory forensics, DFIR.",tags:["forensics","DFIR","chain-of-custody","disk-imaging","timeline","memory-forensics","Autopsy"]},
+  {title:"Cloud Security Fundamentals",folder:"01-Fundamentals",file:"Cloud-Security-Fundamentals",desc:"AWS/Azure/GCP security, IAM misconfigs, S3 buckets, shared responsibility model, CSPM, cloud attack vectors.",tags:["cloud","AWS","Azure","GCP","IAM","S3","CSPM","shared-responsibility","cloud-security"]},
+  {title:"Social Engineering",folder:"01-Fundamentals",file:"Social-Engineering",desc:"Phishing, spear-phishing, vishing, smishing, pretexting, OSINT, human factors, security awareness.",tags:["social-engineering","phishing","spear-phishing","vishing","smishing","pretexting","OSINT","awareness"]},
+  {title:"Threat Intelligence",folder:"01-Fundamentals",file:"Threat-Intelligence",desc:"CTI, IOC, IOA, MITRE ATT&CK, threat actors, TTPs, STIX/TAXII, threat feeds, strategic/tactical/operational.",tags:["threat-intelligence","CTI","IOC","IOA","MITRE","ATT&CK","TTP","STIX","TAXII","feeds"]},
+  {title:"Vulnerability Management",folder:"01-Fundamentals",file:"Vulnerability-Management",desc:"CVE lifecycle, CVSS scoring, NVD, scanning, patching, remediation, risk acceptance, vulnerability disclosure.",tags:["vulnerability-management","CVE","CVSS","NVD","patching","remediation","scanning","risk"]},
+  {title:"Network Defense & Blue Team",folder:"01-Fundamentals",file:"Network-Defense-Blue-Team",desc:"IDS/IPS, SIEM, SOC, firewall, WAF, NDR, EDR, log analysis, detection engineering, alert triage.",tags:["blue-team","IDS","IPS","SIEM","SOC","firewall","WAF","EDR","NDR","detection","log-analysis"]},
+  {title:"Reverse Engineering Basics",folder:"01-Fundamentals",file:"Reverse-Engineering-Basics",desc:"x86/x64 assembly, disassembly, Ghidra, IDA, strings analysis, decompilation, obfuscation, CrackMe.",tags:["reverse-engineering","assembly","x86","x64","Ghidra","IDA","disassembly","decompilation","obfuscation"]},
+  {title:"Nmap",folder:"02-Tools",file:"Nmap",desc:"Port scanner: -sS -sV -O -A -p- NSE scripts, host discovery, output formats (-oA), timing (-T4).",tags:["nmap","port-scan","SYN","stealth","NSE","service-detection","OS-detection","recon"]},
+  {title:"Gobuster",folder:"02-Tools",file:"Gobuster",desc:"Directory/DNS enumeration: dir mode, dns mode, vhost mode, wordlists, extensions (-x), threads (-t).",tags:["gobuster","directory-busting","DNS","enumeration","wordlist","vhosts","fuzzing"]},
+  {title:"ffuf",folder:"02-Tools",file:"ffuf",desc:"Web fuzzer: FUZZ keyword, -w wordlist, -H headers, -fc/-fs/-fw/-fl filters, virtual host fuzzing.",tags:["ffuf","fuzzing","web","FUZZ","wordlist","filter","virtual-host","directory"]},
+  {title:"Burp Suite",folder:"02-Tools",file:"Burp-Suite",desc:"Web proxy: Intercept, Repeater, Intruder, Scanner, Spider. CSRF testing, BApp extensions, collaborator.",tags:["burp","proxy","intercept","repeater","intruder","scanner","web","CSRF","BApp"]},
+  {title:"Metasploit",folder:"02-Tools",file:"Metasploit",desc:"msfconsole, msfvenom, exploit/payload/handler, meterpreter sessions, post-exploitation modules.",tags:["metasploit","msfconsole","msfvenom","exploit","payload","meterpreter","post-exploitation","handler"]},
+  {title:"Netcat",folder:"02-Tools",file:"Netcat",desc:"Swiss army knife: banner grabbing, file transfer, reverse shell, bind shell, listener, relay, port scan.",tags:["netcat","nc","reverse-shell","bind-shell","listener","file-transfer","banner-grab","relay"]},
+  {title:"Hydra",folder:"02-Tools",file:"Hydra",desc:"Online brute-force: SSH, FTP, HTTP, RDP. -l/-L user, -p/-P pass, -t threads, protocol modules.",tags:["hydra","brute-force","SSH","FTP","HTTP","wordlist","login","password-attack"]},
+  {title:"John the Ripper",folder:"02-Tools",file:"John-the-Ripper",desc:"Password cracking: --wordlist, --rules, --format auto-detection, zip2john, ssh2john, hash identification.",tags:["john","password-cracking","hash","wordlist","rockyou","rules","zip2john","ssh2john"]},
+  {title:"Hashcat",folder:"02-Tools",file:"Hashcat",desc:"GPU hash cracking: -m hash-type, -a attack-mode, mask attack, wordlist, hybrid, rules, benchmarks.",tags:["hashcat","GPU","hash-cracking","mask","wordlist","hybrid","attack-mode","benchmark"]},
+  {title:"SQLmap",folder:"02-Tools",file:"SQLmap",desc:"Automated SQL injection: -u URL, --dbs, --tables, --dump, --os-shell, tamper scripts, blind injection.",tags:["sqlmap","SQL-injection","automated","database","dump","tamper","blind","os-shell"]},
+  {title:"Wireshark",folder:"02-Tools",file:"Wireshark",desc:"Packet capture: display filters, BPF, protocol dissection, tshark CLI, pcap analysis, follow stream.",tags:["wireshark","packet-capture","display-filter","BPF","tshark","pcap","protocol","network-analysis"]},
+  {title:"BloodHound",folder:"02-Tools",file:"BloodHound",desc:"AD attack path mapping: SharpHound collector, neo4j, ACLs, DCSync paths, Kerberoasting, graph queries.",tags:["bloodhound","active-directory","attack-path","SharpHound","neo4j","ACL","DCSync","graph"]},
+  {title:"Impacket",folder:"02-Tools",file:"Impacket",desc:"Python AD/SMB toolkit: secretsdump, psexec, wmiexec, smbclient, GetNPUsers, GetSPN, smbserver.",tags:["impacket","secretsdump","psexec","wmiexec","SMB","AD","GetNPUsers","GetSPN","python","lateral-movement"]},
+  {title:"CrackMapExec",folder:"02-Tools",file:"CrackMapExec",desc:"Swiss army knife for Windows networks: SMB/WinRM/LDAP, pass-the-hash, spray, enum-users, shares.",tags:["crackmapexec","CME","SMB","WinRM","LDAP","pass-the-hash","spray","enum","lateral-movement"]},
+  {title:"Volatility",folder:"02-Tools",file:"Volatility",desc:"Memory forensics: process listing, network connections, malfind, dumpfiles, imageinfo, vol.py/vol3.",tags:["volatility","memory-forensics","RAM","dump","malfind","process","network","imageinfo","vol3"]},
+  {title:"Nikto",folder:"02-Tools",file:"Nikto",desc:"Web vulnerability scanner: headers, misconfigs, CGI, SSL, default creds. -h host -p port -o output.",tags:["nikto","web-scanner","vulnerability","headers","misconfig","CGI","SSL","default-creds"]},
+  {title:"Responder",folder:"02-Tools",file:"Responder",desc:"LLMNR/NBT-NS poisoning: capture NTLMv2 hashes, relay attacks, responder.py -I interface -wfr.",tags:["responder","LLMNR","NBT-NS","poisoning","NTLMv2","relay","hash-capture","NTLM"]},
+  {title:"Evil-WinRM",folder:"02-Tools",file:"Evil-WinRM",desc:"WinRM shell: -i IP -u user -p pass -H hash (pass-the-hash), PS remoting, lateral movement.",tags:["evil-winrm","WinRM","PowerShell","lateral-movement","pass-the-hash","remote","shell"]},
+  {title:"Autopsy",folder:"02-Tools",file:"Autopsy",desc:"GUI disk forensics: image analysis, timeline, keyword search, hash lookup, DFIR, Sleuth Kit frontend.",tags:["autopsy","disk-forensics","image","timeline","keyword-search","DFIR","Sleuth-Kit","forensics"]},
+  {title:"OpenVAS / Nessus",folder:"02-Tools",file:"OpenVAS-Nessus",desc:"Vulnerability scanners: OpenVAS/GVM, Nessus scan policies, authenticated scans, CVSS scoring, reports.",tags:["OpenVAS","Nessus","GVM","vulnerability-scanner","authenticated-scan","CVSS","scan-policy"]},
+  {title:"THM Blue",folder:"03-Labs",file:"THM-Blue",desc:"TryHackMe Blue: EternalBlue MS17-010, SMB exploit, Metasploit, meterpreter, hashdump, Windows 7.",tags:["THM","TryHackMe","Blue","EternalBlue","MS17-010","SMB","Metasploit","meterpreter","hashdump","CVE-2017-0144"]},
+  {title:"HTB Lame",folder:"03-Labs",file:"HTB-Lame",desc:"HackTheBox Lame: Samba CVE-2007-2447, usermap_script, distcc, Linux, remote code execution, root.",tags:["HTB","HackTheBox","Lame","Samba","CVE-2007-2447","usermap_script","distcc","Linux","RCE"]},
+  {title:"Custom Lab: Nmap Enumeration",folder:"03-Labs",file:"Custom-Lab-Nmap-Enumeration",desc:"Custom Nmap enumeration lab: port scanning, service version detection, NSE scripts, network mapping.",tags:["nmap","lab","enumeration","port-scan","NSE","service-version","network-mapping"]},
+  {title:"CTF Methodology",folder:"04-CTF",file:"CTF-Methodology",desc:"CTF approach: recon, web, crypto, forensics, pwn, reverse engineering, steganography, flag formats.",tags:["CTF","methodology","recon","web","crypto","forensics","pwn","reverse","steganography","flags"]},
+  {title:"CTF Quick Reference",folder:"04-CTF",file:"CTF-Quick-Reference",desc:"Encoding identification table, magic bytes, hash identification, quick decode one-liners, CyberChef recipes, CTF default credentials reference, Python study snippets (XOR, RSA, file ops), flag formats, steganography checks, reverse engineering quick checks.",tags:["CTF","base64","ROT13","hex","binary","URL-encode","magic-bytes","hash-id","encoding","steganography","python","XOR","CyberChef"]},
+  {title:"Security+ SY0-701",folder:"05-Certs",file:"Security-Plus-SY0-701",desc:"CompTIA Security+ SY0-701: threats, vulnerabilities, cryptography, PKI, network security, operations.",tags:["Security+","SY0-701","CompTIA","cert","threats","cryptography","PKI","network-security"]},
+  {title:"CompTIA A+ 220-1201/1202",folder:"05-Certs",file:"CompTIA-Aplus-220-1201-1202",desc:"CompTIA A+ V15 Core 1 & 2: hardware, networking, OS, troubleshooting, security, operational procedures.",tags:["A+","220-1201","220-1202","CompTIA","V15","hardware","networking","OS","troubleshooting"]},
+  {title:"CompTIA A+ Core 1 (220-1201)",folder:"05-Certs",file:"CompTIA-Aplus-Core1-220-1201",desc:"CompTIA A+ Core 1 study guide: mobile devices, networking, hardware, virtualization, cloud, hardware troubleshooting. Passing score 675.",tags:["A+","220-1201","CompTIA","hardware","networking","mobile","virtualization","cloud","RAID","laser-printer"]},
+  {title:"CompTIA A+ Core 2 (220-1202)",folder:"05-Certs",file:"CompTIA-Aplus-Core2-220-1202",desc:"CompTIA A+ Core 2 study guide: operating systems, security, software troubleshooting, operational procedures. Passing score 700. Includes V15 AI concepts.",tags:["A+","220-1202","CompTIA","Windows","Linux","macOS","security","malware","BitLocker","AI","backup"]},
+  {title:"ServiceNow Micro-Cert: Flows",folder:"05-Certs",file:"ServiceNow-Micro-Cert-Flows",desc:"ServiceNow Flow Designer micro-certification. EARNED 2026-03-26. Automation, triggers, actions, subflows.",tags:["ServiceNow","Flow-Designer","micro-cert","earned","2026","automation"]},
+  {title:"eJPT (INE)",folder:"05-Certs",file:"eJPT-INE",desc:"eLearnSecurity Junior Penetration Tester: recon, scanning, exploitation, web app, network assessment.",tags:["eJPT","INE","eLearnSecurity","junior-pentest","cert","recon","exploitation","web","network"]},
+  {title:"OSCP (PEN-200)",folder:"05-Certs",file:"OSCP-PEN-200",desc:"OffSec OSCP PEN-200: buffer overflow, AD exploitation, pivoting, 24-hour exam, PWK course.",tags:["OSCP","PEN-200","OffSec","buffer-overflow","AD","pivoting","exploit","PWK","cert"]},
+  {title:"CySA+ CS0-003",folder:"05-Certs",file:"CySA-Plus-CS0-003",desc:"CompTIA CySA+: threat detection, SOC, SIEM, incident response, vulnerability assessment, blue team.",tags:["CySA+","CS0-003","CompTIA","blue-team","SOC","SIEM","incident-response","threat-detection"]},
+  {title:"CEH v12",folder:"05-Certs",file:"CEH-v12",desc:"EC-Council CEH v12: 20 domains, footprinting, scanning, enumeration, exploitation, social engineering.",tags:["CEH","v12","EC-Council","ethical-hacker","footprinting","scanning","enumeration","exploitation"]},
+  {title:"ServiceNow CSA",folder:"05-Certs",file:"ServiceNow-CSA",desc:"ServiceNow Certified System Administrator: 6 domains (Platform, Config, Collaboration, Automation, Database, Integration). GlideRecord API, ACLs deny-by-default, table inheritance, update sets, flow designer, import sets, transform maps, catalog items, knowledge management.",tags:["ServiceNow","CSA","cert","GlideRecord","ACL","ITSM","flow-designer","update-sets","table-inheritance","import-sets","coalesce","business-rule","client-script"]},
+  {title:"Common Ports",folder:"06-Reference",file:"Common-Ports",desc:"Port 21 FTP, 22 SSH, 23 Telnet, 25 SMTP, 53 DNS, 80 HTTP, 88 Kerberos, 443 HTTPS, 445 SMB, 3389 RDP.",tags:["ports","reference","FTP","SSH","Telnet","SMTP","DNS","HTTP","Kerberos","HTTPS","SMB","RDP","cheat-sheet"]},
+  {title:"Linux Commands",folder:"06-Reference",file:"Linux-Commands",desc:"ls, cd, grep, find, chmod, chown, netstat, ps, kill, awk, sed, curl, wget, ssh, tar, file permissions.",tags:["linux","commands","reference","grep","find","chmod","netstat","ps","awk","sed","cheat-sheet"]},
+  {title:"Windows Commands",folder:"06-Reference",file:"Windows-Commands",desc:"ipconfig, net user, whoami, icacls, reg query, schtasks, tasklist, wmic, PowerShell basics.",tags:["windows","commands","reference","ipconfig","net-user","whoami","icacls","reg","schtasks","cheat-sheet"]},
+  {title:"Bash Scripting",folder:"06-Reference",file:"Bash-Scripting",desc:"Shebang, variables, loops, functions, if-else, heredoc, pipes, redirects, arrays, getopts.",tags:["bash","scripting","shell","variables","loops","functions","pipes","redirect","heredoc"]},
+  {title:"Python for Security",folder:"06-Reference",file:"Python-for-Security",desc:"Python3 socket, requests, scapy, pwntools, subprocess, os, sys for CTFs and exploit development.",tags:["python","security","socket","requests","scapy","pwntools","CTF","exploit","scripting"]},
+  {title:"File Transfer Techniques",folder:"06-Reference",file:"File-Transfer-Techniques",desc:"wget, curl, SCP, python HTTP server, netcat, base64, certutil, bitsadmin, SMB, impacket smbserver.",tags:["file-transfer","wget","curl","SCP","python","HTTP","netcat","base64","certutil","bitsadmin"]},
+  {title:"ServiceNow Flow Designer",folder:"06-Reference",file:"ServiceNow-Flow-Designer",desc:"Flow Designer: triggers, actions, subflows, integration spokes, REST API, ServiceNow automation.",tags:["ServiceNow","Flow-Designer","trigger","action","subflow","integration","spoke","REST","automation"]},
+  {title:"System Admin Reference",folder:"06-Reference",file:"System-Admin-Reference",desc:"Sysadmin: Windows/Linux services, logs, permissions, networking, DNS, DHCP, Group Policy, backups.",tags:["sysadmin","services","logs","permissions","DNS","DHCP","Group-Policy","backups","reference"]},
+  {title:"Reverse Shell Reference Guide",folder:"06-Reference",file:"Reverse-Shell-Cheatsheet",desc:"Mechanism-based study reference: bash /dev/tcp, netcat variants, python3 socket/dup2, PHP proc_open, PowerShell TCPClient, ruby, perl, AWK inet. Listener setup (nc/rlwrap/socat), TTY stabilization, bind shells, MSFVenom payload generation.",tags:["reverse-shell","bash","netcat","python","perl","php","ruby","PowerShell","msfvenom","TTY","listener","socat","bind-shell"]},
+  {title:"PowerShell Security",folder:"06-Reference",file:"PowerShell-Security",desc:"AMSI bypass, constrained language mode, execution policy bypass, Invoke-Expression, encoded commands.",tags:["PowerShell","AMSI","bypass","constrained-language","execution-policy","Invoke-Expression","encoded","security"]},
+  {title:"AD Attack Reference",folder:"06-Reference",file:"AD-Attack-Reference",desc:"Kerberoasting, AS-REP roasting, DCSync, pass-the-hash, golden ticket, silver ticket, BloodHound, ACL abuse.",tags:["AD","active-directory","Kerberoasting","AS-REP","DCSync","pass-the-hash","golden-ticket","silver-ticket","ACL"]},
+  {title:"Regex Reference",folder:"06-Reference",file:"Regex-Reference",desc:"Anchors, quantifiers, groups, lookahead, lookbehind, grep -E, sed, awk, Python re module, common patterns.",tags:["regex","regexp","grep","sed","awk","python","re","anchors","quantifiers","groups","lookahead"]},
+  {title:"Encoding & Decoding Reference",folder:"06-Reference",file:"Encoding-Decoding-Reference",desc:"Base64, hex, URL encoding, ROT13, binary, ASCII, UTF-8, JWT decode, CyberChef, Python codecs.",tags:["encoding","decoding","base64","hex","URL","ROT13","binary","ASCII","JWT","CyberChef"]},
+  {title:"Vulnerability Research Reference",folder:"06-Reference",file:"Vulnerability-Research-Reference",desc:"CVE/NVD lookup, MITRE, Exploit-DB, searchsploit, PoC verification, patch advisory, CVSS v3 scoring.",tags:["vulnerability","CVE","NVD","MITRE","Exploit-DB","searchsploit","PoC","advisory","CVSS","research"]},
+  {title:"Home Lab Setup",folder:"07-Projects",file:"Home-Lab-Setup",desc:"VirtualBox/VMware setup, Kali Linux, Parrot, Metasploitable 2/3, DVWA, vulnerable network design.",tags:["home-lab","VirtualBox","VMware","Kali","Parrot","Metasploitable","DVWA","lab-setup","network"]},
+  {title:"Home Lab Progress Log",folder:"07-Projects",file:"Home-Lab-Progress-Log",desc:"Live home lab tracker: VM inventory, build checklist (core lab + AD + web app), session log, known issues, networking reference.",tags:["home-lab","VirtualBox","VMware","Kali","AD","lab-setup","progress","tracker"]},
+  {title:"CTF Writeup Template",folder:"07-Projects",file:"CTF-Writeup-Template",desc:"Streamlined CTF writeup template: challenge info, enumeration, solution path, flag, key techniques, tools, references.",tags:["CTF","writeup","template","enumeration","flags","methodology","pentest"]},
+  {title:"Project Template",folder:"07-Projects",file:"Project-Template",desc:"Security project template: scope, objectives, deliverables, timeline, tools, methodology, findings.",tags:["project","template","scope","objectives","deliverables","timeline","findings","methodology"]},
+  {title:"Learning Log Index",folder:"08-Learning-Log",file:"Learning-Log-Index",desc:"Index of all learning log entries. Progress tracking, skill development, session summaries.",tags:["learning-log","index","progress","tracking","journal"]},
+  {title:"Learning Log 2026-03-23",folder:"08-Learning-Log",file:"Learning-Log-2026-03-23",desc:"Session 1: vault build, fundamentals notes, tools setup, graph configuration.",tags:["learning-log","2026-03-23","session-1","vault-build","fundamentals"]},
+  {title:"Learning Log 2026-03-23 S2",folder:"08-Learning-Log",file:"Learning-Log-2026-03-23-S2",desc:"Session 2: lab write-ups, reference notes, cert notes, canvas layout.",tags:["learning-log","2026-03-23","session-2","labs","reference","certs"]},
+  {title:"Learning Log 2026-03-26",folder:"08-Learning-Log",file:"Learning-Log-2026-03-26",desc:"Session 3: full audit, 33 new notes, search tool rebuild, 74 total notes, CTF/Projects expansion.",tags:["learning-log","2026-03-26","session-3","audit","expansion","74-notes"]}
+];
+
+const FOLDER_COLORS_HEX={
+  '01-Fundamentals':'#3B82F6',
+  '02-Tools':'#14B8A6',
+  '03-Labs':'#22C55E',
+  '04-CTF':'#8B5CF6',
+  '05-Certs':'#F97316',
+  '06-Reference':'#EF4444',
+  '07-Projects':'#EC4899',
+  '08-Learning-Log':'#84CC16'
+};
+
+const FOLDER_COLORS={'01-Fundamentals':'f01','02-Tools':'f02','03-Labs':'f03','04-CTF':'f04','05-Certs':'f05','06-Reference':'f06','07-Projects':'f07','08-Learning-Log':'f08'};
+const FOLDERS=[...new Set(NOTES.map(n=>n.folder))];
+let activeFolder=null;
+let toastTimer=null;
+
+function showToast(msg){
+  const el=document.getElementById('toast');
+  el.textContent=msg;
+  el.style.display='block';
+  clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>el.style.display='none',2000);
+}
+
+function openNote(folder,file){
+  const path=encodeURIComponent(folder+'/'+file);
+  window.open('obsidian://open?vault=SecOps-Vault&file='+path,'_self');
+  showToast('Opening '+file.replace(/-/g,' ')+'…');
+}
+
+function copyLink(event,folder,file){
+  event.stopPropagation();
+  const wikilink='[['+folder+'/'+file+']]';
+  navigator.clipboard.writeText(wikilink).then(()=>showToast('✅ Wikilink copied!'));
+}
+
+function render(filter='',folder=null){
+  const q=filter.toLowerCase().trim();
+  const results=NOTES.filter(n=>{
+    const inFolder=!folder||n.folder===folder;
+    if(!q)return inFolder;
+    return inFolder&&(n.title.toLowerCase().includes(q)||n.desc.toLowerCase().includes(q)||n.tags.some(t=>t.toLowerCase().includes(q))||n.file.toLowerCase().includes(q));
+  });
+  document.getElementById('stats').textContent='Showing '+results.length+' of '+NOTES.length+' notes';
+  const grid=document.getElementById('grid');
+  if(results.length===0){grid.innerHTML='<div class="no-results">No notes match your search.</div>';return;}
+  grid.innerHTML=results.map(n=>`
+    <div class="card ${FOLDER_COLORS[n.folder]||''}" onclick="openNote('${n.folder}','${n.file}')">
+      <div class="card-header">
+        <div class="card-folder">${n.folder}</div>
+        <button class="copy-btn" onclick="copyLink(event,'${n.folder}','${n.file}')" title="Copy [[wikilink]]">⧉</button>
+      </div>
+      <div class="card-title">${n.title}</div>
+      <div class="card-desc">${n.desc}</div>
+      <div class="tags">${n.tags.slice(0,6).map(t=>`<span class="tag">${t}</span>`).join('')}</div>
+      <div class="open-hint">↗ Click to open in Obsidian</div>
+    </div>`).join('');
+}
+
+function buildFilters(){
+  const div=document.getElementById('filters');
+  const allBtn='<button class="filter-btn active" onclick="setFolder(null,this)">All ('+NOTES.length+')</button>';
+  const folderBtns=FOLDERS.map(f=>{
+    const color=FOLDER_COLORS_HEX[f]||'';
+    const dot=color?`<span class="filter-dot" style="background:${color}"></span>`:'';
+    const count=NOTES.filter(n=>n.folder===f).length;
+    return `<button class="filter-btn" onclick="setFolder('${f}',this)">${dot}${f} (${count})</button>`;
+  }).join('');
+  div.innerHTML=allBtn+folderBtns;
+}
+
+function setFolder(f,btn){
+  activeFolder=f;
+  document.querySelectorAll('.filter-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  render(document.getElementById('searchBox').value,f);
+}
+
+document.getElementById('searchBox').addEventListener('input',e=>render(e.target.value,activeFolder));
+buildFilters();
+render();
+</script>
+</body>
+</html>

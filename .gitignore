@@ -1,0 +1,32 @@
+# Obsidian settings — may contain plugin configs and sensitive data
+.obsidian/
+
+# Claude session data
+.claude/
+
+# Home lab notes — pentest data, VM credentials, sensitive ops
+IT-Home-Lab/
+
+# Living session references — personal operational state
+Session-Reference/
+
+# Agent knowledge base — operational internal docs
+knowledge-base/
+
+# ABS project files
+ABS/
+
+# Environment and secrets
+.env
+.env.*
+*.key
+*.pem
+
+# OS clutter
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temp files
+*.tmp
+*.bak

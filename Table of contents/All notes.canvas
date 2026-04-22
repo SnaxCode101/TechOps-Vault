@@ -1,0 +1,21 @@
+{
+	"nodes":[
+		{"id":"40468f8b65b8e3ae","type":"file","file":"ABS/ABS APP/ABS - Architecture Overview.md","x":1730,"y":-3960,"width":400,"height":400},
+		{"id":"7181d37cb5538d98","type":"file","file":"ABS/ABS APP/ABS - styles.css.md","x":1730,"y":-3560,"width":400,"height":400},
+		{"id":"48b886fa16690778","type":"file","file":"ABS/ABS APP/ABS - index.html.md","x":1330,"y":-3560,"width":400,"height":400},
+		{"id":"f9b7045544f55edf","type":"file","file":"ABS/ABS APP/ABS - preload.js.md","x":1330,"y":-3160,"width":400,"height":400},
+		{"id":"263f0cfb85a07901","type":"file","file":"ABS/ABS APP/ABS - main.js.md","x":1730,"y":-3160,"width":400,"height":400},
+		{"id":"f56adb6773ddbfca","type":"file","file":"ABS/ABS APP/ABS - renderer.js.md","x":2130,"y":-3560,"width":400,"height":400},
+		{"id":"9d228463d9688b49","type":"file","file":"ABS/ABS APP/ABS - package.json.md","x":2130,"y":-3160,"width":400,"height":400},
+		{"id":"59805104a317a4cb","type":"file","file":"ABS/ABS APP/ABS - .prettierrc.md","x":1330,"y":-2760,"width":400,"height":400},
+		{"id":"e6f9627654e53c24","type":"file","file":"ABS/ABS APP/ABS - validators.js.md","x":1730,"y":-2760,"width":400,"height":400},
+		{"id":"c09a7c4e73f71e1c","type":"file","file":"ABS/ABS APP/ABS - jest.config.js.md","x":2130,"y":-2760,"width":400,"height":400},
+		{"id":"d65713d0537c311c","type":"file","file":"ABS/ABS APP/ABS - .gitignore.md","x":1330,"y":-2360,"width":400,"height":400},
+		{"id":"40e036abda276b27","type":"file","file":"ABS/ABS APP/ABS - ipc.js.md","x":1330,"y":-1960,"width":400,"height":400},
+		{"id":"42a89e7555708b52","type":"file","file":"ABS/ABS APP/ABS - encrypt.js.md","x":1730,"y":-2360,"width":400,"height":400},
+		{"id":"3eb4ca8690367cdf","type":"file","file":"ABS/ABS APP/ABS - error.js.md","x":1730,"y":-1960,"width":400,"height":400},
+		{"id":"1a4d0ac1a39c0085","type":"file","file":"ABS/ABS APP/ABS - .eslintrc.js.md","x":2130,"y":-2360,"width":400,"height":400},
+		{"id":"45b41b13ba4badde","type":"file","file":"ABS/ABS APP/ABS - .env.example.md","x":2130,"y":-1960,"width":400,"height":400}
+	],
+	"edges":[]
+}
