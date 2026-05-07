@@ -15,6 +15,9 @@ updated: 2026-04-15
 
 ---
 
+**Healthcare IT**
+[[Rapid-Rounds-Roadmap]] · [[Healthcare project response from Kassie]]
+
 **Home Lab**
 [[Home-Lab-Setup]] · [[Home-Lab-Progress-Log]]
 
@@ -25,4 +28,4 @@ updated: 2026-04-15
 [[CTF-Writeup-Template]] · [[Project-Template]]
 
 ---
-*6 notes · [[Dashboard]]*
+*8 notes · [[Dashboard]]*
