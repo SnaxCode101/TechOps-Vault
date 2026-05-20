@@ -39,7 +39,7 @@ Save as `G:\scripts\vault-sync.ps1`
 
 $exclude = @(".obsidian", ".claude", "Session-Reference", "IT-Home-Lab", "knowledge-base", "ABS", "Table of contents", "SecOps-Vault")
 
-Get-ChildItem "G:\Obsidian\TechOps\" -Directory |
+Get-ChildItem "G:\Vaults\TechOps\" -Directory |
   Where-Object { $_.Name -notin $exclude } |
   ForEach-Object {
     $dest = "G:\docker-projects\portfolio\site\vault\$($_.Name)"

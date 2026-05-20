@@ -8,7 +8,7 @@ tags:
 topic: Tools
 difficulty: foundational
 created: 2026-04-14
-updated: 2026-04-15 S33
+updated: 2026-05-16
 source: Anthropic — Claude Code CLI
 ---
 
@@ -31,41 +31,15 @@ That's it. Run it from the right directory and it automatically loads the right 
 
 ## The Directory Trick — Most Important Thing to Know
 
-> [!important] Always launch from the right folder
-> Claude Code ties memory and context to **whatever directory you launch from**.
-> Wrong directory = wrong context. Always `cd` first, then `claude`.
+> [!important] Launch from `G:\` — always
+> GRID (the master context) is tied to `G:\`. Launching from there gives full cross-project awareness via `G:\CLAUDE.md` and the memory system.
 
 ```powershell
-# Home Lab sessions (VMs, networking, exploits)
-cd G:\VirtualBoxVMs
-claude
-
-# Website / Portfolio sessions (snaxcode.dev, Cloudflare, Nginx)
-cd G:\docker-projects\portfolio
-claude
-
-# TechOps Vault sessions — notes, certs, tools, home lab docs
-cd "G:\Obsidian\TechOps"
-claude
-
-# ABS project sessions
-cd "G:\Obsidian\TechOps\ABS"
-claude
-
-# Knowledge Base sessions (AI/agent projects)
-cd "G:\Obsidian\TechOps\knowledge-base"
-claude
-
-# Docker projects (general)
-cd G:\docker-projects
-claude
-
-# Home Life vault (personal, recipes, calendar)
-cd "G:\Obsidian\Home Life"
+cd G:\
 claude
 ```
 
-Each project stays in its own lane — no mixing context.
+GRID reads `G:\CLAUDE.md` automatically at session start and loads the right memory + session references from there. No need to cd into subfolders.
 
 ---
 
@@ -97,8 +71,7 @@ Runs a single prompt and exits — useful for quick questions without opening a 
 > [!warning] Claude has ZERO memory between sessions without these files
 > If it's not saved to a memory file or session reference — it's gone next session.
 
-- Memory lives at: `C:\Users\Crott\.claude\projects\[project]\memory\`
-- TechOps vault memory: `C:\Users\Crott\.claude\projects\G--Obsidian-TechOps\memory\`
+- Memory lives at: `C:\Users\Crott\.claude\projects\G--\memory\`
 - Automatically loaded at session start based on working directory
 - Types: `user` (your profile), `feedback` (your preferences), `project` (current work state), `reference` (where to find things)
 - Always update your **Obsidian session reference** + ask Claude to update memory at end of session
@@ -129,13 +102,13 @@ In the terminal there's no drag-and-drop. Instead just type this at the start of
 
 ```
 Please read my session reference file at:
-G:\Obsidian\TechOps\Session-Reference\Session-Reference(New).md
+G:\Vaults\TechOps\Session-Reference\Session-Reference(New).md
 ```
 
 Or for the Home Lab:
 ```
 Please read my session reference file at:
-G:\Obsidian\TechOps\IT-Home-Lab\Session-Reference.md
+G:\Vaults\TechOps\IT-Home-Lab\Session-Reference.md
 ```
 
 Claude will read it and instantly have full context. That's it — no uploading needed.

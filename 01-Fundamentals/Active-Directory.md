@@ -1,7 +1,6 @@
-﻿---
+---
 title: Active Directory Fundamentals
-tags: '["fundamentals", "active-directory", "windows", "authentication", "AD",
-  "sysadmin", "intermediate"]'
+tags:
 difficulty: intermediate
 created: 2026-03-23
 updated: 2026-03-28

